@@ -225,6 +225,61 @@ r.test('withoutDeviceAddresses MUST carry an address as its prefix WHEN a probe 
   assert.equal(prefix64(null), null);
 });
 
+const score = (offsetMs, slotName) =>
+  record(byName('score'), 'evaluateCellularScore: RRC state: 1, forceActiveEval:0, RSRP: -103.000000, ' +
+         `SNR: 0.400000, RSRQ: -16.000000, data slot: CTSubscriptionSlot${slotName}`, offsetMs);
+const otherSignal = (offsetMs, rsrp) =>
+  record(byName('lte_signal'), `QMI.NAS.1: received LTE SigInfo rssi -60 snr 9 rsrq -9 rsrp ${rsrp}`,
+         offsetMs);
+const slotOf = rec => collect([rec]).events[0].slot;
+
+r.test('createCollector MUST record the SIM slot a line names WHEN the line carries a slot marker', () => {
+  assert.equal(slotOf(otherSignal(0, -70)), 1, 'QMI NAS instances count from 1');
+  assert.equal(slotOf(identity(0, 16461107)), 2, 'QMI DSD instances count from 0');
+  assert.equal(slotOf(record(byName('cell_changed'),
+                             'updateCurrentRatInfo 0, Cell Changed 1, nrCellType: 1')), 1,
+               'the number before Cell Changed counts from 0');
+  assert.equal(slotOf({...record(byName('serving_cell'),
+    'Index: 0, MCC: 204, MNC: 16, Band info: 3, Area code: 69, Cell ID: <private>, EARFCN: 1800, ' +
+    'PID: 214'), category: 'cm.1'}), 1, 'CommCenter category suffixes count from 1');
+  assert.equal(slotOf(score(0, 'Two')), 2);
+});
+
+r.test('createCollector MUST record no slot WHEN the line carries no slot marker', () => {
+  assert.equal(slotOf(record(byName('pdn_up'), 'ipv6ServiceUp: addr = 2a02:a420:1:2:3:4:5:6')), null);
+});
+
+r.test('enrich MUST drop the lines of the other SIM WHEN a score line names the data slot', () => {
+  const events = collect([
+    score(0, 'Two'), identity(0, 16461107), signal(100, -100), signal(1000, -101),
+    otherSignal(500, -70),
+    record(byName('rat_info'), 'QMI.DSD.0 RAT Info: kENDCFR1, MCC 204, MNC 4, TAC 1, cell_id 99', 1500)
+  ]).events;
+  const joined = enrich(session([round(0, 0)]), events);
+  const {radio} = joined.samples[0];
+  assert.deepEqual(radio.lte.samples.map(s => s[1]), [-100, -101]);
+  assert.equal(radio.rat, 'kLTE', 'the RAT is read from the SIM carrying data');
+  assert.equal(joined.plmn, '204-08');
+  assert.equal(joined.other_sim_dropped, 2);
+  assert.deepEqual(joined.data_slots, [2]);
+});
+
+r.test('enrich MUST keep lines from every slot WHEN no score line names a data slot', () => {
+  const joined = enrich(session([round(0, 0)]),
+                        collect([identity(0, 16461107), signal(100, -100), otherSignal(500, -70)]).events);
+  assert.equal(joined.samples[0].radio.lte.n, 2);
+  assert.equal(joined.other_sim_dropped, 0);
+});
+
+r.test('enrich MUST follow the data slot WHEN the score lines move it to the other SIM', () => {
+  const events = collect([
+    identity(0, 16461107), score(0, 'Two'), signal(100, -100),
+    score(2000, 'One'), otherSignal(2500, -70), signal(3000, -101)
+  ]).events;
+  const {radio} = enrich(session([round(0, 0)]), events).samples[0];
+  assert.deepEqual(radio.lte.samples.map(s => s[1]), [-100, -70]);
+});
+
 r.test('isSysdiagnoseArchive MUST hold only for a packed archive WHEN a path is given', () => {
   assert.equal(isSysdiagnoseArchive('sysdiagnose_2026.09.12_15-50-12+0200_iPhone.tar.gz'), true);
   assert.equal(isSysdiagnoseArchive('/a/b/system_logs.logarchive'), false);

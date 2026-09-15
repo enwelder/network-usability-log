@@ -44,6 +44,9 @@ a `/64`.
 
 A required pattern that matches nothing fails the run and names itself.
 
+A phone with two SIMs logs both. Every line names its SIM slot, and only lines from the slot
+carrying data are joined; `parse.other_sim_dropped` counts the rest.
+
 Both sides carry the same clock: a row's `t` is `Date.now()` on the phone, and the log lines carry
 that phone's system time. A round covers `t` to `t + round_ms`, and `phase_idle_ms`, `phase_down_ms`
 and `phase_up_ms` split it further.
@@ -82,7 +85,8 @@ Console.app.
 
 ## Limits
 
-Rows marked *log format* describe lines read on iOS 27.0 (24A435). Apple versions none of them.
+Rows marked *log format* describe lines read on iOS 26.7 (23H24) and iOS 27.0 (24A435, 24A437).
+Apple versions none of them.
 
 | limit | basis | consequence |
 |---|---|---|

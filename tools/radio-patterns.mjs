@@ -1,21 +1,25 @@
 // Line patterns for the radio values the phone's unified log carries, one entry per value the join
 // reads. `subsystem` and `category` narrow the log query; `regex` runs against a record's
-// `eventMessage`. `example` is a line seen on the build below, and the suite asserts every regex
+// `eventMessage`. `example` is a line seen on the builds below, and the suite asserts every regex
 // still matches its own example.
 //
-// Apple versions none of these formats. They were read on iOS 27.0, build 24A435, a beta: expect
-// them to change, and expect a required pattern matching nothing to be the first sign of it.
+// Apple versions none of these formats: expect them to change, and expect a required pattern
+// matching nothing to be the first sign of it.
 
-export const BUILD_SEEN = 'iOS 27.0 (24A435)';
+export const BUILD_SEEN = 'iOS 26.7 (23H24), iOS 27.0 (24A435, 24A437)';
 
 const IRAT = 'com.apple.WirelessRadioManager.iRAT';
 const COMMCENTER = 'com.apple.CommCenter';
+
+// CommCenter names a category once per SIM slot, and an iPhone carries up to two active SIMs.
+const perSlot = (...bases) => bases.flatMap(b => [`${b}.1`, `${b}.2`]);
+const CELL_CATEGORIES = perSlot('cm', '5wi.evt', '5wi.sd');
 
 // The query is narrowed to these pairs. `Coex/Trace` alone is a third of the records and carries
 // nothing read here.
 export const SOURCES = [
   {subsystem: IRAT, categories: ['TraceCellular', 'TraceHandoverManager', 'TraceMetrics']},
-  {subsystem: COMMCENTER, categories: ['cm.2', '5wi.evt.2', '5wi.sd.2', 'DATA.PDP:0:']}
+  {subsystem: COMMCENTER, categories: [...CELL_CATEGORIES, 'DATA.PDP:0:']}
 ];
 
 // A record whose message carries any of these is dropped before anything is retained: the log
@@ -28,6 +32,22 @@ export const SENTINELS = new Set([32767, -32768, -3276, 4294934528, 3276.7, -327
 export const isSentinel = n => n == null || Number.isNaN(n) || SENTINELS.has(n);
 
 const num = s => (s == null ? null : Number(s));
+
+// Each line names the SIM slot it describes, returned here counting from 1. QMI NAS instances and
+// CommCenter category suffixes count from 1; QMI DSD instances and the number before
+// `Cell Changed` count from 0.
+const fromNas = message => num(message.match(/QMI\.NAS\.(\d+):/)?.[1]);
+const fromDsd = message => {
+  const m = message.match(/QMI\.DSD\.(\d+) /);
+  return m ? Number(m[1]) + 1 : null;
+};
+const fromCellChanged = message => {
+  const m = message.match(/(\d+), Cell Changed \d/);
+  return m ? Number(m[1]) + 1 : null;
+};
+const fromSlotName = message =>
+  ({One: 1, Two: 2})[message.match(/CTSubscriptionSlot(One|Two)\b/)?.[1]] ?? null;
+const fromCategory = (message, category) => num(category?.match(/\.(\d)$/)?.[1]);
 
 // NR levels are printed as unsigned 32-bit: -75 arrives as 4294967221.
 const signed32 = n => (n > 2 ** 31 ? n - 2 ** 32 : n);
@@ -47,14 +67,14 @@ const nrBands = n => NR_BANDS.filter(([, lo, hi]) => n >= lo && n <= hi).map(([b
 export const PATTERNS = [
   {
     name: 'lte_signal',
-    subsystem: IRAT, category: 'TraceCellular', required: true,
+    subsystem: IRAT, category: 'TraceCellular', required: true, slot: fromNas,
     regex: /received LTE SigInfo rssi (-?\d+) snr (-?[\d.]+) rsrq (-?\d+) rsrp (-?\d+)/,
     example: 'QMI.NAS.2: received LTE SigInfo rssi -80 snr 0 rsrq -14 rsrp -112',
     read: m => ({kind: 'lte', rssi: num(m[1]), snr: num(m[2]), rsrq: num(m[3]), rsrp: num(m[4])})
   },
   {
     name: 'nr_signal',
-    subsystem: IRAT, category: 'TraceCellular', required: false,
+    subsystem: IRAT, category: 'TraceCellular', required: false, slot: fromNas,
     regex: /received New SigInfo snr (-?[\d.]+) rsrp (-?\d+)/,
     example: 'QMI.NAS.2: received New SigInfo snr 24 rsrp -80',
     read: m => ({kind: 'nr', snr: num(m[1]), rsrp: num(m[2])})
@@ -65,7 +85,7 @@ export const PATTERNS = [
     // aggregated cell, and it is the only type ever carrying a level, so the type is matched here
     // rather than filtered later. `SCS`, `Is SA` and `BWP Support` read 0 on every line.
     name: 'nr_cell',
-    subsystem: COMMCENTER, category: 'cm.2', required: false,
+    subsystem: COMMCENTER, category: perSlot('cm'), required: false, slot: fromCategory,
     regex: /NRARFCN: (\d+), PCI: (\d+), RSRP: (-?\d+), RSRQ: (-?\d+), SCS: \d+, Is SA: \d+, Bandwidth: (\d+), BWP Support: \d+, Neighbor Type: 1\b/,
     example: 'NRARFCN: 646848, PCI: 119, RSRP: 4294967221, RSRQ: 4294967285, SCS: 0, Is SA: 0, ' +
              'Bandwidth: 100000000, BWP Support: 0, Neighbor Type: 1, Throughput: 0',
@@ -82,7 +102,7 @@ export const PATTERNS = [
     // The identity source: it carries `cell_id` unredacted, which the CommCenter table reports as
     // `Cell ID: <private>`.
     name: 'rat_info',
-    subsystem: IRAT, category: 'TraceCellular', required: true,
+    subsystem: IRAT, category: 'TraceCellular', required: true, slot: fromDsd,
     regex: /RAT Info: (\w+), MCC (\d+), MNC (\d+), TAC (\d+), cell_id (\d+)/,
     example: 'QMI.DSD.1 RAT Info: kLTE, MCC 204, MNC 8, TAC 32004, cell_id 16461107',
     read: m => ({kind: 'identity', rat: m[1], mcc: num(m[2]), mnc: num(m[3]), tac: num(m[4]),
@@ -90,7 +110,7 @@ export const PATTERNS = [
   },
   {
     name: 'gci',
-    subsystem: IRAT, category: 'TraceCellular', required: false,
+    subsystem: IRAT, category: 'TraceCellular', required: false, slot: fromDsd,
     regex: /GCI: (\d+)\.(\d+)\.(\d+)\.(\d+)/,
     example: 'QMI.DSD.1 GCI: 204.8.32004.16461108',
     read: m => ({kind: 'gci', mcc: num(m[1]), mnc: num(m[2]), tac: num(m[3]), eci: num(m[4])})
@@ -99,14 +119,15 @@ export const PATTERNS = [
     // A reselection is read here and nowhere else: consecutive identity reports alternate between
     // two cells inside one second, so comparing identities overstates reselections.
     name: 'cell_changed',
-    subsystem: IRAT, category: 'TraceCellular', required: true,
+    subsystem: IRAT, category: 'TraceCellular', required: true, slot: fromCellChanged,
     regex: /Cell Changed (\d)/,
     example: 'updateConnectedStateSummary 1, Cell Changed 1, nrCellType: 0',
     read: m => ({kind: 'cell_changed', changed: m[1] === '1'})
   },
   {
+    // Logged for the SIM carrying data only, so its slot is the data slot.
     name: 'score',
-    subsystem: IRAT, category: 'TraceHandoverManager', required: true,
+    subsystem: IRAT, category: 'TraceHandoverManager', required: true, slot: fromSlotName,
     regex: /RRC state: (\d+),.*?RSRP: (-?[\d.]+), SNR: (-?[\d.]+), RSRQ: (-?[\d.]+)/,
     example: 'evaluateCellularScore: RRC state: 1, forceActiveEval:0, RSRP: -103.000000, ' +
              'SNR: 0.400000, RSRQ: -16.000000, data slot: CTSubscriptionSlotTwo',
@@ -115,13 +136,14 @@ export const PATTERNS = [
   {
     // iOS's own stall detector, independent of the tool's stall check.
     name: 'stall',
-    subsystem: IRAT, category: 'TraceMetrics', required: false,
+    subsystem: IRAT, category: 'TraceMetrics', required: false, slot: fromSlotName,
     regex: /stall detected (\d)/,
     example: '-[WRM_EnhancedCTService updateDataStallState:stall:]_block_invoke: slot ' +
              'CTSubscriptionSlotTwo stall detected 1',
     read: m => ({kind: 'stall', stalled: m[1] === '1'})
   },
   {
+    // The PDN lines name no SIM slot, so they are kept whichever slot carries data.
     name: 'pdn_release',
     subsystem: COMMCENTER, category: 'DATA.PDP:0:', required: false,
     regex: /notifyDisconnect:.*disconnected by network on kDataProtocolFamily(IPv6|IPv4)/,
@@ -140,7 +162,7 @@ export const PATTERNS = [
   {
     // Band, bandwidth and PCI, which the identity line does not carry. `Cell ID` is redacted here.
     name: 'serving_cell',
-    subsystem: COMMCENTER, category: ['cm.2', '5wi.evt.2', '5wi.sd.2'], required: false,
+    subsystem: COMMCENTER, category: CELL_CATEGORIES, required: false, slot: fromCategory,
     regex: /Index: 0, MCC: (\d+), MNC: (\d+), Band info: (\d+), Area code: (\d+), Cell ID: (\S+?), EARFCN: (\d+), PID: (\d+)(?:.*?Bandwidth: (\d+))?/,
     example: 'Index: 0, MCC: 204, MNC: 08, Band info: 7, Area code: 32004, Cell ID: <private>, ' +
              'EARFCN: 3150, PID: 253, Latitude: <private>, Longitude: <private>, Bandwidth: 50',

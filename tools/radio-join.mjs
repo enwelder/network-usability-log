@@ -79,7 +79,8 @@ export function createCollector() {
           state.sentinels_dropped++;
         }
       }
-      const event = {t: Date.parse(record.timestamp), pattern: p.name, ...value};
+      const event = {t: Date.parse(record.timestamp), pattern: p.name,
+                     slot: p.slot ? p.slot(message, record.category) : null, ...value};
       events.push(event);
       return event;
     }
@@ -108,7 +109,19 @@ export function enrich(session, events) {
   const rows = (session.samples || []).slice().sort((a, b) => a.seq - b.seq);
   const intervalMs = session.session?.intervalMs ?? 20000;
   const roundEnd = r => r.t + (r.round_ms ?? intervalMs);
-  const sorted = [...events].sort((a, b) => a.t - b.t);
+  // A phone with two SIMs logs both. The score lines name the slot carrying data at each moment,
+  // and a line naming another slot describes a SIM the measured path did not use.
+  const all = [...events].sort((a, b) => a.t - b.t);
+  const marks = all.filter(e => e.kind === 'score' && e.slot != null);
+  const sorted = [];
+  let otherSim = 0;
+  let mark = -1;
+  for (const e of all) {
+    while (mark + 1 < marks.length && marks[mark + 1].t <= e.t) mark++;
+    const dataSlot = (marks[mark] ?? marks[0])?.slot; // lines before the first score take its slot
+    if (e.slot != null && dataSlot != null && e.slot !== dataSlot) otherSim++;
+    else sorted.push(e);
+  }
   const of = kind => sorted.filter(e => e.kind === kind);
   const identities = of('identity');
   const configs = of('radio_config');
@@ -227,7 +240,9 @@ export function enrich(session, events) {
       ? `${identities[0].mcc}-${String(identities[0].mnc).padStart(2, '0')}` : null,
     tacs: [...new Set(identities.map(e => e.tac).filter(v => v != null))],
     signal_from: of('lte')[0] ? iso(of('lte')[0].t) : null,
-    signal_to: of('lte').at(-1) ? iso(of('lte').at(-1).t) : null
+    signal_to: of('lte').at(-1) ? iso(of('lte').at(-1).t) : null,
+    data_slots: [...new Set(marks.map(e => e.slot))],
+    other_sim_dropped: otherSim
   };
 }
 
@@ -305,10 +320,12 @@ export function buildOutput(session, collector, archivePath, sourcePath = archiv
         // line can fall outside any round.
         signal_from: joined.signal_from,
         signal_to: joined.signal_to,
-        // `patterns` counts lines matched. A reselection count is separate, since the flag line
-        // is logged on every report and reads 0 on almost all of them.
+        // `patterns` counts lines matched on every SIM slot, before `other_sim_dropped` removes
+        // those from a slot not carrying data. A reselection count is separate, since the flag
+        // line is logged on every report and reads 0 on almost all of them.
         parse: {
           ...collector.state, patterns: collector.counts,
+          data_slots: joined.data_slots, other_sim_dropped: joined.other_sim_dropped,
           patterns_build: BUILD_SEEN, predicate: predicate()
         },
         method: METHOD,
@@ -412,7 +429,8 @@ async function main() {
     console.log(`  parsed ${collector.state.lines_read} records; ` +
       Object.entries(collector.counts).map(([k, v]) => `${k} ${v}`).join(', '));
     console.log(`  dropped ${collector.state.identifiers_dropped} records carrying identifiers, ` +
-      `${collector.state.sentinels_dropped} sentinel values`);
+      `${collector.state.sentinels_dropped} sentinel values, ` +
+      `${out.session.radio.parse.other_sim_dropped} lines from a SIM not carrying data`);
   } catch (e) {
     console.error(e.message);
     process.exitCode = 1;
