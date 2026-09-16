@@ -143,16 +143,21 @@ function titleLine(b, title, items = []) {
 }
 
 const RADIO_BLOCKS = new Set(['band', 'rsrp', 'snr', 'events']);
-const NUMERIC_BLOCKS = new Set(['rsrp', 'snr', 'throughput', 'latency']);
+const BATTERY_BLOCKS = new Set(['heat']);
+const NUMERIC_BLOCKS = new Set(['rsrp', 'snr', 'throughput', 'latency', 'heat']);
+
+// A panel is drawn for the tracks whose file carries what it plots, and left out when no track does.
+const carries = (track, id) => (RADIO_BLOCKS.has(id) ? track.has_radio
+                              : BATTERY_BLOCKS.has(id) ? track.has_battery : true);
+const absentNote = id => (BATTERY_BLOCKS.has(id) ? 'no battery readings for' : 'no radio log for');
 
 export function layout(ride) {
   const n = ride.tracks.length;
-  const radio = ride.tracks.some(k => k.has_radio);
   const blocks = [];
   let y = 0;
   const push = (id, h, rows = []) => { blocks.push({id, y, h, rows}); y += h; };
   const panel = (id, rowH, rowGap = 6) => {
-    if (RADIO_BLOCKS.has(id) && !radio) return;
+    if (!ride.tracks.some(k => carries(k, id))) return;
     if (NUMERIC_BLOCKS.has(id)) {
       push(id, 18 + rowH + 12, [{track: null, y: y + 18, h: rowH}]);
       return;
@@ -164,7 +169,8 @@ export function layout(ride) {
   push('header', 70 + 20 * n);
   push('overview', 262);
   for (const [id, h, gap] of [['grades', 34, 6], ['band', 26, 6], ['rsrp', numeric], ['snr', numeric],
-                              ['throughput', numeric], ['latency', numeric], ['events', 10, 4]]) {
+                              ['throughput', numeric], ['latency', numeric], ['heat', 56],
+                              ['events', 10, 4]]) {
     panel(id, h, gap);
   }
   push('axis', 58);
@@ -190,7 +196,12 @@ const PANELS = {
                      ['dashed', `calling unusable above ${SCALES.round_trip.edges[2]}`], ['cross', 'failed']],
             scale: logScale, lo: 10, hi: 5000, ticks: [10, 100, 1000], threshold: SCALES.round_trip.edges[2],
             series: [s => routeMs(s.probes), s => (s.probes?.dns?.ok ? s.probes.dns.ms : null)],
-            failed: s => roundTripFailed(s.probes || {})}
+            failed: s => roundTripFailed(s.probes || {})},
+  // The phone's own warmth, from the sysdiagnose powerlog. No line marks a limit: iOS states no
+  // temperature at which it holds the modem back, and the battery is not the chip.
+  heat: {title: 'battery temperature (°C)', legend: [],
+         scale: linear, lo: 20, hi: 40, ticks: [25, 30, 35],
+         series: [s => s.battery?.temp_c]}
 };
 
 function context(ride, summary) {
@@ -296,10 +307,11 @@ function connectionBlock(b, c) {
 
 // All phones share one plot. Second lines go down first, so every phone's main line stays on top.
 function linePanel(b, c, spec) {
-  const shown = c.ride.tracks.filter(k => !RADIO_BLOCKS.has(b.id) || k.has_radio);
+  const shown = c.ride.tracks.filter(k => carries(k, b.id));
   const missing = c.ride.tracks.filter(k => !shown.includes(k)).map(k => k.label);
   const phones = c.ride.tracks.length > 1 ? shown.map(k => [c.colour(k.label), k.label]) : [];
-  const title = missing.length ? `${spec.title}, no radio log for ${missing.join(', ')}` : spec.title;
+  const title = missing.length
+    ? `${spec.title}, ${absentNote(b.id)} ${missing.join(', ')}` : spec.title;
   const out = [titleLine(b, title, [...phones, ...spec.legend])];
   const row = b.rows[0];
   const y = spec.scale(spec.lo, spec.hi, row.y + row.h, row.y);
@@ -310,7 +322,10 @@ function linePanel(b, c, spec) {
     // A label on the plot's edge would meet the panel title or the next panel.
     if (ty > row.y + 7 && ty < row.y + row.h - 3) out.push(text(X0 - 6, ty + 3, t, {size: 9, fill: GREY, anchor: 'end'}));
   }
-  out.push(line(X0, y(spec.threshold), X1, y(spec.threshold), GRADE.red, ' stroke-dasharray="4 3" stroke-opacity="0.8"'));
+  if (spec.threshold != null) {
+    out.push(line(X0, y(spec.threshold), X1, y(spec.threshold), GRADE.red,
+                  ' stroke-dasharray="4 3" stroke-opacity="0.8"'));
+  }
   for (let si = spec.series.length - 1; si >= 0; si--) {
     for (const k of shown) {
       const stroke = si === 0 ? c.colour(k.label) : c.light(k.label);
@@ -512,6 +527,7 @@ export function renderSvg(ride, summary) {
     snr: b => linePanel(b, c, PANELS.snr),
     throughput: b => linePanel(b, c, PANELS.throughput),
     latency: b => linePanel(b, c, PANELS.latency),
+    heat: b => linePanel(b, c, PANELS.heat),
     events: b => eventsBlock(b, c),
     axis: b => axisBlock(b, c, panelsTop, spans)
   };

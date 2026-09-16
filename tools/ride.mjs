@@ -100,6 +100,7 @@ function trackOf(group) {
     device: radio?.device ?? null,
     plmn: radio?.plmn ?? null,
     has_radio: group.some(e => e.kind === 'radio'),
+    has_battery: samples.some(r => r.battery?.temp_c != null),
     sessions: group.map(e => ({
       id: e.session.id, name: e.session.name ?? null, renamed: !!e.session.renamed,
       file: basename(e.file), format: e.format, rounds: e.samples.length,
