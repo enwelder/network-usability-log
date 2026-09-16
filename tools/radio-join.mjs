@@ -351,21 +351,25 @@ export function buildOutput(session, collector, archivePath, sourcePath = archiv
 export const isSysdiagnoseArchive = path => /\.(tar\.gz|tgz)$/i.test(path);
 
 // Everything the join reads: the log bundle, the plist naming the build, the dump naming the model.
-const WANTED = /\/(system_logs\.logarchive\/|logs\/SystemVersion\/|remotectl_dumpstate\.txt$)/;
+const WANTED = ['system_logs.logarchive', 'logs/SystemVersion', 'remotectl_dumpstate.txt'];
+const BUNDLE = '/system_logs.logarchive/';
 
-// Unpacks those two alone from a sysdiagnose, into a directory the caller removes. Members are
-// named exactly rather than by pattern, since tar implementations differ on wildcards.
+// Unpacks those three alone from a sysdiagnose, into a directory the caller removes. Members are
+// named exactly rather than by pattern, since tar implementations differ on wildcards. A directory
+// member carries its contents, and GNU tar fails on a child named after it, having passed the
+// entry already.
 export function extractSysdiagnose(archivePath) {
   const dir = mkdtempSync(join(tmpdir(), 'nulog-sysdiagnose-'));
   const remove = () => rmSync(dir, {recursive: true, force: true});
   try {
     const listing = execFileSync('tar', ['tzf', archivePath],
-                                 {encoding: 'utf8', maxBuffer: 1 << 28});
-    const members = listing.split('\n').filter(name => WANTED.test(name));
-    if (!members.length) throw new Error('holds no system_logs.logarchive');
-    const list = join(dir, 'members.txt');
-    writeFileSync(list, `${members.join('\n')}\n`);
-    execFileSync('tar', ['xzf', archivePath, '-C', dir, '-T', list],
+                                 {encoding: 'utf8', maxBuffer: 1 << 28}).split('\n');
+    const bundle = listing.find(name => name.includes(BUNDLE));
+    if (!bundle) throw new Error('holds no system_logs.logarchive');
+    const root = bundle.slice(0, bundle.indexOf(BUNDLE));
+    const members = WANTED.map(name => `${root}/${name}`)
+      .filter(m => listing.some(name => name === m || name.startsWith(`${m}/`)));
+    execFileSync('tar', ['xzf', archivePath, '-C', dir, ...members],
                  {stdio: ['ignore', 'ignore', 'pipe']});
     const top = readdirSync(dir).map(name => join(dir, name))
       .find(path => existsSync(join(path, 'system_logs.logarchive')));
