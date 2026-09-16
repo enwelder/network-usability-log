@@ -19,7 +19,7 @@ directly.
 | 13 | `up` carries `saturated` and `ceiling_bps`; `abort` is excluded from failure tallies |
 | 14 | the app is named Network Usability Log: format ids are `nulog/session`, `nulog/bundle` and `nulog/fixture`, file names start with `nulog-`, and the DNS control host is `nulog-dns-control.github.io`; `mark` events are no longer written; a round cut by Stop is `interrupted: stop` |
 | 16 | the summary counts the rounds that lost the wake lock (`wake_lock_lost`) |
-| 17 | a literal that failed without stalling is followed by one request to a second literal of its family; the probe carries `via`, `alt_host`, `alt_ms`, `alt_fail`, `primary_ms` and `primary_fail` |
+| 17 | a literal that failed without stalling is followed by one request to a second literal of its family; the probe carries `alt_host`, `alt_ms`, and `alt_ok` or `alt_fail` |
 | 15 | a wake-lock release no longer interrupts a round: `interrupted` is `suspended` or `stop`, and `wake_lock_lost` marks a round that saw a release; each probe's summary carries `spread_p50` and `spread_p90`; a session renamed by hand carries `renamed` and names its export file |
 
 Version 5 changes failure counts. Below it only `ip4` carries `expected`, so every `ip6` failure
@@ -124,8 +124,8 @@ screen.
 | `status` | `ip6` `ip4` `down` | HTTP status; null where the response is opaque and the status is unknowable |
 | `unused` | `ip6` `ip4` | another family carried the round's traffic. Excluded from tallies |
 | `blocked` | `ip6` `ip4` | this family carried traffic in the round and the literal address was refused. A literal that timed out is never `blocked`. Excluded from tallies |
-| `via` `alt_host` `alt_ms` | `ip6` `ip4` | `alt` marks a round trip measured against the second literal of this family, named by `alt_host`, after the configured address failed without stalling. `alt_ms` is that request's time, successful or not |
-| `primary_ms` `primary_fail` | `ip6` `ip4` | what the configured address did, kept when the second literal supplied the round trip |
+| `alt_host` `alt_ms` | `ip6` `ip4` | the second literal of this family, requested once after the configured address failed without stalling, and that request's time. It never supplies `ms` |
+| `alt_ok` | `ip6` `ip4` | the second literal answered: this family carries traffic and the configured address alone is refused. Counts as the family carrying traffic, so the literal is `blocked` |
 | `alt_fail` | `ip6` `ip4` | the second literal failed too, so no address of this family answered. A resolver that echoes another question fails as `parse` |
 | `protocol_samples` | `ip6` `ip4` | per sample, the HTTP version the trace endpoint received the request over (`http/1.1`, `http/2`, `http/3`); null for a failed sample |
 | `expected` | `udp` | the browser has no such API. Excluded from tallies |

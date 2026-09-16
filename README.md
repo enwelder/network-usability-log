@@ -39,10 +39,10 @@ carries no grades. A slot that comes due while a round is running writes a `skip
 A literal that fails without stalling never reached the link: the address was refused, or its
 family has no route on this client. The probe then makes one request to a second literal of the
 same family, `https://[2001:4860:4860::8888]/resolve` or `https://8.8.8.8/resolve`, which echoes
-the question it was asked. An answer there sets `via: 'alt'` and supplies the round trip, keeping
-`primary_fail` and `primary_ms`; a refusal there sets `alt_fail`, and no address of that family
-answered. The two literals sit on different networks, so a round trip carrying `via: 'alt'` is not
-directly comparable with one from the configured address.
+the question it was asked. An answer sets `alt_ok`: that family carries traffic and the configured
+address alone is refused, which flags the literal `blocked`. A refusal sets `alt_fail`: no address
+of that family answered. The second literal never supplies `ms`, since the two addresses sit on
+different networks and their round trips are not one series.
 | `dns` | `HEAD https://<random>.github.io/` | 5, median, a new name each | first contact with an uncached host: resolution, connect, TLS |
 | `dns_ctl` | `HEAD https://nulog-dns-control.github.io/` | 10, median | the same destination under a cached name |
 | `down` | `GET https://speed.cloudflare.com/__down`, 3 streams | 1 | sustained downstream throughput |

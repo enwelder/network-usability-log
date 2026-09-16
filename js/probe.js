@@ -696,8 +696,9 @@ async function takeSamples(probe, opts, started) {
 const STALLED = new Set(['timeout', 'abort']);
 
 // A literal that failed without stalling never reached the link: the address was refused, or its
-// family has no route on this client. The second literal separates the two, and its round trip
-// keeps calls measurable. Its budget is one second, since an address that answers at all answers
+// family has no route on this client. One request to a second literal separates the two. It stays
+// a diagnosis and never supplies `ms`: the two addresses sit on different networks, so their round
+// trips are not one series. Its budget is one second, since an address that answers at all answers
 // within a round trip and the round's cadence comes first.
 async function tryAlternate(probe, opts, out, started) {
   const left = (opts.timeoutMs ?? TIMEOUT_MS) - (performance.now() - started);
@@ -706,16 +707,8 @@ async function tryAlternate(probe, opts, out, started) {
                             {...opts, timeoutMs: Math.min(left, MIN_TIMEOUT_MS)});
   out.alt_host = new URL(probe.alt).host;
   out.alt_ms = alt.ms;
-  if (!alt.ok) {
-    out.alt_fail = alt.fail;
-    return out;
-  }
-  out.primary_ms = out.ms;
-  out.primary_fail = out.fail;
-  out.ok = true;
-  out.fail = null;
-  out.ms = alt.ms;
-  out.via = 'alt';
+  if (alt.ok) out.alt_ok = true;
+  else out.alt_fail = alt.fail;
   return out;
 }
 
@@ -862,8 +855,9 @@ function carriedFamilies(out) {
   for (const [id, r] of Object.entries(out)) {
     if (!r) continue;
     if (id === 'ip6' || id === 'ip4') {
-      // A literal's family is the address family in its URL.
-      if (r.ok || r.fail === 'http' || r.fail === 'parse') carried.add(id);
+      // A literal's family is the address family in its URL; the second literal of that family
+      // answering is the same evidence.
+      if (r.ok || r.alt_ok || r.fail === 'http' || r.fail === 'parse') carried.add(id);
     } else if (r.egress_ip) {
       // Hostname probes: the family is that of the egress address the far end reports. Both
       // reporting endpoints are dual-stack, so the reported family is the family used.

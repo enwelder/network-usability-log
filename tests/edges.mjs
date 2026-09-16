@@ -244,16 +244,22 @@ function stubAlternate(body = resolverBody()) {
   return seen;
 }
 
-d.test('runProbe MUST answer over the second literal WHEN the first literal is refused before it reaches the link', async () => {
+d.test('runProbe MUST mark the family reached and keep the probe failed WHEN the second literal answers', async () => {
   stubAlternate();
   const r = await probe.runProbe(P.ip4, {timeoutMs: 3000});
-  assert.equal(r.ok, true, 'the family carries traffic, so the round is measurable');
-  assert.equal(r.via, 'alt');
+  assert.equal(r.alt_ok, true, 'the family carries traffic and this address alone is refused');
   assert.equal(r.alt_host, '8.8.8.8');
-  assert.equal(r.primary_fail, 'network', 'what the configured address did is kept');
-  assert.equal(r.fail, null);
-  assert.equal(typeof r.ms, 'number', 'the round trip comes from the address that answered');
-  assert.equal(r.egress_ip, undefined, 'a resolver reports no egress address');
+  assert.equal(r.ok, false, 'the configured address is what the probe measures');
+  assert.equal(r.fail, 'network');
+  assert.equal(r.via, undefined, 'the two addresses are not one series, so neither supplies ms');
+});
+
+d.test('runRound MUST flag the literal blocked and count no failure WHEN only the second literal answers', async () => {
+  stubAlternate();
+  const {probes} = await probe.runRound({intervalMs: 4000});
+  const ip4 = probes.ip4;
+  assert.equal(ip4.blocked, true, 'its family carried traffic, so the link is not at fault');
+  assert.equal(countsAsFailure(ip4), false);
 });
 
 d.test('runProbe MUST keep the probe failed WHEN both literals are refused', async () => {
@@ -263,6 +269,7 @@ d.test('runProbe MUST keep the probe failed WHEN both literals are refused', asy
   assert.equal(r.fail, 'network');
   assert.equal(r.alt_host, '8.8.8.8');
   assert.equal(r.alt_fail, 'network', 'no address of this family answered');
+  assert.equal(r.alt_ok, undefined);
 });
 
 d.test('runProbe MUST request no second literal WHEN the first literal stalls until its deadline', async () => {

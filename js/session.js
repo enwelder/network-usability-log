@@ -29,7 +29,7 @@ const handshakes = (probe, attempts, first) =>
 const cost = p => (WARM_BYTES[p.kind] * (p.samples || 1)) + handshakes(p, p.samples || 1, false) +
                   (p.bodyBytes || 0);
 
-export const APP_VERSION = '3.19.0';
+export const APP_VERSION = '3.20.0';
 
 // The download runs every round, so the interval is what controls data use.
 export const PROFILES = {
@@ -364,10 +364,10 @@ export function createRecorder({onSample, onEvent, onStatus, onNotice, store = r
   function noteInterference(row) {
     for (const [id, , label] of PATHS) {
       const r = row.probes[id];
-      if (r?.via === 'alt') {
+      if (r?.alt_ok) {
         noteOnce(`alt-${id}`,
-          `${LITERAL_IPS[id]} refused in ${r.primary_ms} ms while ${r.alt_host} answered, so ` +
-          `${label} carries traffic and the round trip is measured against ${r.alt_host}`);
+          `${LITERAL_IPS[id]} refused in ${r.ms} ms while ${r.alt_host} answered, so ${label} ` +
+          `carries traffic and this address alone is refused`);
       } else if (r?.blocked) {
         noteOnce(`blocked-${id}`,
           `no ${label} literal answered while ${label} carries traffic: ${LITERAL_IPS[id]} and ` +
