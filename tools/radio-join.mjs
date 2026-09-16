@@ -237,7 +237,19 @@ export function enrich(session, events) {
     };
   };
 
-  const samples = rows.map(row => ({...withoutDeviceAddresses(row), radio: radioFor(row)}));
+  // The radios sharing 2.4 GHz with the cellular bands, per round: what the phone had switched on
+  // while the measurement ran. It records the setup, and settles nothing on its own.
+  const stateFor = row => {
+    const start = row.t;
+    const end = roundEnd(row);
+    const scans = sorted.filter(e => e.kind === 'wifi_scan' && e.t >= start && e.t <= end);
+    const bt = sorted.filter(e => e.kind === 'bt_state' && e.t <= end).at(-1);
+    if (!scans.length && !bt) return null;
+    return {wifi_scans: scans.length, bluetooth_on: bt ? bt.on : null};
+  };
+
+  const samples = rows.map(row => ({...withoutDeviceAddresses(row), radio: radioFor(row),
+                                    ...(stateFor(row) ? {state: stateFor(row)} : {})}));
 
   // A reselection between two rounds leaves no mark inside either window: the cell simply differs.
   // Without this the new cell would replace the old one silently.

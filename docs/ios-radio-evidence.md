@@ -63,6 +63,12 @@ and `phase_up_ms` split it further.
 | cell change | `updateConnectedStateSummary 1, Cell Changed 1` |
 | neighbours | `EARFCN: 6400, PCI: 395, Bandwidth: 50, Neighbor Type: 3` |
 | MIMO layers | `QMI.DSD.1 Max Scheduled MIMO Layer: 3`, beside `Max Network MIMO Layer` and `Total Downlink MIMO Layers` |
+| Wi-Fi scanning | `Infra scan started (2.4GHz: 4 5GHz: 0)` |
+| Bluetooth power | `GetControllerInfo: , BlSt PoweredOff, DcsS Off` |
+
+The last two say which of the radios sharing 2.4 GHz with the cellular bands were live while a
+round ran. Only the Bluetooth controller's own power state is read: the rest of that subsystem is a
+stream of advertisements from devices belonging to people nearby, which the join never retains.
 
 The sysdiagnose also holds a powerlog, `logs/powerlogs/powerlog_*.PLSQL`. The join reads the
 battery temperature and charge from it and gives every round the reading nearest its start, within
@@ -106,6 +112,7 @@ Apple versions none of them.
 | MIMO reporting is not in every capture | observed | one archive of four carried no layer line at all, from the same phone and build as one that did, so the field is absent rather than zero |
 | the battery is the only temperature | observed | a warm modem beside a cool battery is invisible; the reading also lags, since the battery warms after the chip does |
 | within one ride, temperature rises with time | by construction | it is a proxy for how far along the route a round was, so a warm-against-cool comparison inside a single ride cannot separate heat from place. Two rides over the same route, one started cold and one started warm, can |
+| the recorded state does not isolate a cause | by construction | within one ride the setup holds, so Wi-Fi scanning or a powered Bluetooth radio is a control to compare rides by, not a measurement of what either did |
 | it is the phone's own view | by construction | no radio-block utilisation, no scheduling decisions, no other user's experience, so it names a cell without proving what the cell did |
 | line formats are unversioned | by construction | a required pattern matching nothing fails the run and names itself |
 | the profile expires after 7 days | Apple: `DurationUntilRemoval` is 604800 s in `Baseband.mobileconfig` | reinstall before a trip, and remove it afterwards under Settings → General → VPN & Device Management, then restart |

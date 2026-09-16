@@ -10,6 +10,8 @@ export const BUILD_SEEN = 'iOS 26.7 (23H24), iOS 27.0 (24A435, 24A437)';
 
 const IRAT = 'com.apple.WirelessRadioManager.iRAT';
 const COMMCENTER = 'com.apple.CommCenter';
+const WIFI_P2P = 'com.apple.wifip2pd';
+const BLUETOOTH = 'com.apple.bluetooth';
 
 // CommCenter names a category once per SIM slot, and an iPhone carries up to two active SIMs.
 const perSlot = (...bases) => bases.flatMap(b => [`${b}.1`, `${b}.2`]);
@@ -19,7 +21,12 @@ const CELL_CATEGORIES = perSlot('cm', '5wi.evt', '5wi.sd');
 // nothing read here.
 export const SOURCES = [
   {subsystem: IRAT, categories: ['TraceCellular', 'TraceHandoverManager', 'TraceMetrics']},
-  {subsystem: COMMCENTER, categories: [...CELL_CATEGORIES, 'DATA.PDP:0:']}
+  {subsystem: COMMCENTER, categories: [...CELL_CATEGORIES, 'DATA.PDP:0:']},
+  // The two radios that share 2.4 GHz with the cellular bands, for the round to record which of
+  // them were live. The Bluetooth category is narrowed to the controller's own state: the rest of
+  // that subsystem is a stream of advertisements from strangers' devices nearby.
+  {subsystem: WIFI_P2P, categories: ['interface']},
+  {subsystem: BLUETOOTH, categories: ['CBDaemonXPCConnection']}
 ];
 
 // A record whose message carries any of these is dropped before anything is retained: the log
@@ -97,6 +104,24 @@ export const PATTERNS = [
               bands: nrBands(arfcn), pci: num(m[2]), rsrp: signed32(num(m[3])),
               rsrq: signed32(num(m[4])), bw_mhz: num(m[5]) / 1e6};
     }
+  },
+  {
+    // A scan means the Wi-Fi radio is live, whatever the phone is connected to. The two counts are
+    // what the scan found per band, not the bands it swept.
+    name: 'wifi_scan',
+    subsystem: WIFI_P2P, category: 'interface', required: false,
+    regex: /Infra scan started \(2\.4GHz: (\d+) 5GHz: (\d+)\)/,
+    example: 'Infra scan started (2.4GHz: 4 5GHz: 0)',
+    read: m => ({kind: 'wifi_scan', found_24: num(m[1]), found_5: num(m[2])})
+  },
+  {
+    // Only the controller's power state is read. The line can go on to name a connected accessory,
+    // and the rest of this subsystem names devices belonging to people nearby.
+    name: 'bt_state',
+    subsystem: BLUETOOTH, category: 'CBDaemonXPCConnection', required: false,
+    regex: /\bBlSt (PoweredOn|PoweredOff)\b/,
+    example: 'GetControllerInfo: , BlSt PoweredOff, DcsS Off, Chip BCM_4388',
+    read: m => ({kind: 'bt_state', on: m[1] === 'PoweredOn'})
   },
   {
     // What the modem was allowed and what it took: a fallback under heat or coexistence shows as

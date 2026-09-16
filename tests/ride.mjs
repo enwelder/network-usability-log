@@ -4,7 +4,7 @@ import assert from 'node:assert';
 import {suite} from './helpers.mjs';
 import {bestFix, buildTracks, dedupeSessions, fixOf, groupRides, is5g, pairRounds, readInput, ridesFrom,
         routeSegments, zonedClock} from '../tools/ride.mjs';
-import {pairedTotals, redStretches, rideSummary, thermalTotals, trackTotals} from '../tools/ride-summary.mjs';
+import {pairedTotals, redStretches, rideSummary, stateTotals, thermalTotals, trackTotals} from '../tools/ride-summary.mjs';
 import {nearestPlace, validatePlaces} from '../tools/places.mjs';
 import {toPlaces} from '../tools/places-from-osm.mjs';
 import {commonBreaks, esc, layout, renderSvg, timeTicks} from '../tools/ride-svg.mjs';
@@ -306,7 +306,7 @@ r.test('thermalTotals MUST split at the median temperature WHEN rounds carry rea
     warmRound(40, {temp: 34, rsrp: -95, mbps: 20})
   ]);
   assert.equal(t.split_c, 30);
-  assert.deepEqual(t.temp_c, {min: 28, p50: 30, max: 34});
+  assert.deepEqual(t.temp_c, {min: 28, p50: 30, max: 34, spread: 6});
   assert.equal(t.rounds, 3);
 });
 
@@ -338,6 +338,31 @@ r.test('thermalTotals MUST report the scheduled layers per side WHEN rounds carr
 
 r.test('thermalTotals MUST return null WHEN no round carries a battery reading', () => {
   assert.equal(thermalTotals([round('a', 0), round('a', 20)]), null);
+});
+
+r.test('stateTotals MUST count the scans and the powered rounds WHEN rounds carry a radio state', () => {
+  const t = stateTotals([
+    round('a', 0, {state: {wifi_scans: 4, bluetooth_on: true}}),
+    round('a', 20, {state: {wifi_scans: 8, bluetooth_on: true}}),
+    round('a', 40, {state: {wifi_scans: 0, bluetooth_on: false}})
+  ]);
+  assert.equal(t.wifi_scans.total, 12);
+  assert.equal(t.wifi_scans.p50_per_round, 4);
+  assert.equal(t.bluetooth_on_share, 0.667);
+});
+
+r.test('stateTotals MUST return null WHEN no round carries a radio state', () => {
+  assert.equal(stateTotals([round('a', 0), round('a', 20)]), null);
+});
+
+r.test('thermalTotals MUST state the temperature of each half WHEN the halves lie close together', () => {
+  const t = thermalTotals([
+    warmRound(0, {temp: 30.1, rsrp: -105, mbps: 20}),
+    warmRound(20, {temp: 30.2, rsrp: -105, mbps: 10})
+  ]);
+  assert.equal(t.temp_c.spread, 0.1, 'the spread says the comparison is not about heat');
+  const band = t.by_signal.find(b => b.signal === '-110 to -100 dBm');
+  assert.deepEqual([band.cool.temp_p50_c, band.warm.temp_p50_c], [30.1, 30.2]);
 });
 
 await r.run();

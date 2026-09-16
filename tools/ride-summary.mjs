@@ -125,20 +125,40 @@ export function thermalTotals(samples) {
       return r != null && r >= band.min && r < band.max && downMbps(s) != null;
     });
     if (!inBand.length) continue;
+    // Each side states its own median temperature: how far apart the halves lie is what says
+    // whether the comparison is about heat at all.
     const side = keep => {
       const rows_ = inBand.filter(keep);
       return {rounds: rows_.length, dl_p50_mbps: round1(pct(rows_.map(downMbps), 0.5)),
-              mimo_p50: pct(rows_.map(s => s.radio?.mimo?.scheduled?.med), 0.5)};
+              mimo_p50: pct(rows_.map(s => s.radio?.mimo?.scheduled?.med), 0.5),
+              temp_p50_c: round1(pct(rows_.map(s => s.battery.temp_c), 0.5))};
     };
     by_signal.push({signal: band.label,
                     cool: side(s => !warmer.has(s)), warm: side(s => warmer.has(s))});
   }
   return {
     rounds: rows.length,
-    temp_c: {min: Math.min(...temps), p50: split, max: Math.max(...temps)},
+    temp_c: {min: Math.min(...temps), p50: split, max: Math.max(...temps),
+             spread: round1(Math.max(...temps) - Math.min(...temps))},
     battery_level: {start: rows[0].battery.level, end: rows.at(-1).battery.level},
     split_c: split,
     by_signal
+  };
+}
+
+// What the phone had switched on while it measured. A Wi-Fi scan means that radio was live
+// whatever it was connected to. This records the setup and settles nothing by itself: within one
+// ride the setup holds, so a difference belongs to a comparison between rides.
+export function stateTotals(samples) {
+  const rows = samples.filter(s => s.state);
+  if (!rows.length) return null;
+  const scans = rows.map(s => s.state.wifi_scans);
+  const known = rows.filter(s => s.state.bluetooth_on != null);
+  return {
+    rounds: rows.length,
+    wifi_scans: {total: scans.reduce((a, n) => a + n, 0), p50_per_round: pct(scans, 0.5)},
+    bluetooth_on_share: known.length
+      ? share(known.filter(s => s.state.bluetooth_on).length, known.length) : null
   };
 }
 
@@ -220,6 +240,7 @@ export function trackTotals(track, ride) {
     failures: Object.fromEntries(Object.entries(s.probes)
       .filter(([, p]) => sumFails(p.fails) > 0).map(([id, p]) => [id, p.fails])),
     radio: radioTotals(track.samples, recordedMin),
+    state: stateTotals(track.samples),
     thermal: thermalTotals(track.samples)
   };
 }
@@ -305,6 +326,9 @@ export const DEFINITIONS = {
   lower: "per track, the pairs in which that track's grade lies further toward red than the other's",
   red_only: 'per track, the pairs in which only that track is red',
   connection_5g: 'a round whose RAT reads kENDC, or that measured NR signal',
+  radio_state: 'Wi-Fi scans counted in the round and whether the Bluetooth controller was powered. ' +
+               'Only the controller state is read from that subsystem: the rest of it names devices ' +
+               'belonging to people nearby',
   battery_temp: 'the reading nearest the round from the sysdiagnose powerlog, within its max_age_ms. ' +
                 'iOS records no per-component sensor on a shipping build, so this is the battery',
   thermal_by_signal: 'download rate for the cooler and the warmer half of the rounds, within one ' +

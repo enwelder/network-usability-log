@@ -367,4 +367,38 @@ r.test('withBattery MUST return the rounds unchanged WHEN the archive carried no
   assert.equal(withBattery(rows, null), rows);
 });
 
+const wifiScan = (offsetMs, found24 = 0) =>
+  record(byName('wifi_scan'), `Infra scan started (2.4GHz: ${found24} 5GHz: 0)`, offsetMs);
+const btState = (offsetMs, on) =>
+  record(byName('bt_state'), `GetControllerInfo: , BlSt ${on ? 'PoweredOn' : 'PoweredOff'}, DcsS Off`,
+         offsetMs);
+
+r.test('enrich MUST count the scans inside the round WHEN the Wi-Fi radio is live', () => {
+  const events = collect([
+    identity(0, 16461107), signal(100, -100),
+    wifiScan(200), wifiScan(3000), wifiScan(19000, 4), wifiScan(21000)
+  ]).events;
+  const rows = enrich(session([round(0, 0), round(1, 20000, {seq: 1})]), events).samples;
+  assert.equal(rows[0].state.wifi_scans, 2, 'the two inside the round, which runs 4 s of the 20');
+  assert.equal(rows[1].state.wifi_scans, 1, 'the scan between the rounds belongs to neither');
+});
+
+r.test('enrich MUST carry the last known Bluetooth state WHEN no line falls inside the round', () => {
+  const events = collect([identity(0, 16461107), signal(100, -100), btState(200, false)]).events;
+  const rows = enrich(session([round(0, 0), round(1, 20000, {seq: 1})]), events).samples;
+  assert.equal(rows[0].state.bluetooth_on, false);
+  assert.equal(rows[1].state.bluetooth_on, false, 'a power state holds until it changes');
+});
+
+r.test('enrich MUST report no state WHEN the log carries neither radio', () => {
+  const events = collect([identity(0, 16461107), signal(100, -100)]).events;
+  assert.equal(enrich(session([round(0, 0)]), events).samples[0].state, undefined);
+});
+
+r.test('bt_state MUST read the power state alone WHEN the line goes on to name an accessory', () => {
+  const p = byName('bt_state');
+  const m = 'GetControllerInfo: , BlSt PoweredOn, AuLQ [{Device: "someone-headphones"}]'.match(p.regex);
+  assert.deepEqual(p.read(m), {kind: 'bt_state', on: true}, 'nothing but the state is retained');
+});
+
 await r.run();
