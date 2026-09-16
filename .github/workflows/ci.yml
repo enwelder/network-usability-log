@@ -30,6 +30,8 @@ jobs:
         run: node tests/run.mjs edges
       - name: the radio join over hand-written log records
         run: node tests/run.mjs radio
+      - name: ride summaries and chart layout over hand-written rounds
+        run: node tests/run.mjs ride
       # --with-deps runs apt-get update, and the runner image ships third-party repositories
       # this project does not need. Google's has been serving an index whose hash does not
       # match its own Release file, which fails the whole update and so the whole step. Drop

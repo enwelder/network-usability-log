@@ -259,6 +259,16 @@ export function osVersion(archive) {
   }
 }
 
+// Marketing names for the phones recorded here; any other identifier stands as it is.
+const MODEL_NAMES = {'iPhone16,1': 'iPhone 15 Pro', 'iPhone14,6': 'iPhone SE'};
+
+export function deviceOf(archive) {
+  const dump = join(dirname(archive), 'remotectl_dumpstate.txt');
+  if (!existsSync(dump)) return {device_id: null, device: null};
+  const id = readFileSync(dump, 'utf8').match(/iPhone\d+,\d+/)?.[0] ?? null;
+  return {device_id: id, device: id ? MODEL_NAMES[id] ?? id : null};
+}
+
 // The archive's own name carries when the sysdiagnose was taken.
 export function sysdiagnoseTaken(archive) {
   const m = archive.match(/sysdiagnose_(\d{4})\.(\d{2})\.(\d{2})_(\d{2})-(\d{2})-(\d{2})([+-]\d{4})/);
@@ -315,6 +325,7 @@ export function buildOutput(session, collector, archivePath, sourcePath = archiv
           archive: basename(sourcePath)
         },
         ...osVersion(archivePath),
+        ...deviceOf(archivePath),
         // The stretch of the ride the log still held. A count of covered rounds is left to the
         // reader; these two are not derivable from the rounds, since the first and last signal
         // line can fall outside any round.
@@ -339,8 +350,8 @@ export function buildOutput(session, collector, archivePath, sourcePath = archiv
 
 export const isSysdiagnoseArchive = path => /\.(tar\.gz|tgz)$/i.test(path);
 
-// Everything the join reads: the log bundle and the plist naming the build.
-const WANTED = /\/(system_logs\.logarchive|logs\/SystemVersion)\//;
+// Everything the join reads: the log bundle, the plist naming the build, the dump naming the model.
+const WANTED = /\/(system_logs\.logarchive\/|logs\/SystemVersion\/|remotectl_dumpstate\.txt$)/;
 
 // Unpacks those two alone from a sysdiagnose, into a directory the caller removes. Members are
 // named exactly rather than by pattern, since tar implementations differ on wildcards.

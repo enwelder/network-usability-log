@@ -183,3 +183,31 @@ Records not derivable from the samples.
 | `skip` | a slot came due `late_ms` behind schedule while round `round` was still running: `running_ms` so far, and `waiting_on`, the unsettled probe ids (`loaded_rtt` for the loaded round trip, `reference` for the Google request) |
 | `page` | the tab `hidden` or `visible`, `pagehide` or `pageshow`, `freeze` or `resume` |
 | `network` | `online` or `offline`, and a change of connection type or class where the browser exposes `navigator.connection`. Safari lacks it, so an iPhone records `online` and `offline` only |
+
+## Ride summary
+
+`tools/ride-chart.mjs` writes `nulog/ride-summary`, version 1, one per ride. Places appear as a name and a distance, never as coordinates. `definitions` in the file states the rule behind each figure.
+
+| field | content |
+|---|---|
+| `ride` | `id`, `title` (renamed session names, then `{from} → {to}`), `timezone`, `date`, `start_clock` and `end_clock` in that zone, `start_iso`, `end_iso`, `duration_min`, `from_place` and `to_place` as `{name, distance_m}` or null, `places_source`, `usable_fix_share` per track |
+| `definitions` | rated and red rounds, stretches, pairing, fix limits, place distance, percentile method, grade scales, the 5G rule, LTE band frequencies |
+| `inputs[]` | every file read: `file`, `format`, `session_id`, `used`, `reason` |
+| `tracks[]` | one per phone: `label` (the operator, numbered when two tracks share one), `operator`, `device` (the model, from the sysdiagnose), `connection`, `screen`, `ios_version`, `ios_build`, `plmn`, `interval_ms`, `sessions[]`, `joins[]` (a later session continuing the track), `gaps[]` (`pause`, `skip`, `join` or `unknown`), `totals`, `stretches[]` |
+| `paired` | null unless the ride has two tracks: `tracks`, `pairs`, `tolerance_ms`, `activities.<id>` (`both_rated`, `same`, `both_red`, and `lower` and `red_only` per track label), `any_red` (per track label, `both`, `neither`), `both_red_stretches[]` |
+| `minutes[]` | per minute from the start: `clock`, `place`, and per track label `rounds`, `rated`, `red`, `grades` (worst grade per activity as `g`, `y`, `o`, `r` or `-`), `dl_p50_mbps`, `rtt_p50_ms`, `lte_rsrp_dbm`, `rat` |
+
+`tracks[].totals`:
+
+| field | content |
+|---|---|
+| `rounds` | `recorded_min`, `rounds`, `ran`, `slots`, `skipped`, `interrupted`, `round_errors`, `paused_rounds`, `wake_lock_lost`, `gap_min` |
+| `activities.<id>` | `counts` and `shares` per grade over rated rounds, `unrated`, `red_min`, `longest_red_run` |
+| `any_red` | `rounds`, `share`, `minutes` |
+| `download`, `upload` | `p10_mbps`, `p50_mbps`, `rated`, `saturated`, `failed` |
+| `round_trip` | `n`, `p50_ms`, `p90_ms`, `failed`: the IPv6 literal, else the IPv4 literal |
+| `new_host` | `p50_ms`, `p90_ms` of the `dns` probe |
+| `failures` | failure reasons counted per probe |
+| `radio` | null without a radio-joined file: `coverage`, `share_5g`, `rat_share`, `band_share`, `nr_cell_rounds`, `lte_rsrp_dbm` and `lte_snr_db` (`p10`, `p50`), `nr_rsrp_dbm`, `cell_changes_in_rounds`, `cell_changes_between_rounds`, `cell_changes_per_hour`, `stall_rounds` |
+
+A stretch holds `from_clock`, `to_clock`, `from_min`, `to_min`, `rounds` (`pairs` in `both_red_stretches`), `red_by_activity`, `from_place`, `to_place`, and `radio`: RAT shares, bands, LTE RSRP p50, cell changes, stall rounds and rounds without radio coverage.

@@ -165,6 +165,8 @@ service worker caches the shell so the page loads on a network too degraded to f
 | `NULOG_ENGINES=chromium,webkit,firefox npm test` | browser suites run once per engine (Chromium for Android, WebKit for iOS); each needs `npx playwright install <engine>` |
 | `node tools/anonymise.mjs <recording> <fixture>` | strips coordinates, addresses and user agents; shifts timestamps, keeps intervals and measurements |
 | `node tools/radio-join.mjs <session.json> <sysdiagnose.tar.gz>` | attaches the serving cell and the signal from the phone's own baseband log to every round, on iOS; [docs/ios-radio-evidence.md](docs/ios-radio-evidence.md) states how to capture one |
+| `node tools/ride-chart.mjs <files or dirs>` | groups the sessions recorded together into rides, with every phone in one chart; reads a directory's `input` folder when it has one and writes to `output`, naming each file by time, route and phones; writes a chart per ride as PNG, and a summary with totals, red stretches named by station and per-minute rows, without coordinates; [docs/data-format.md](docs/data-format.md#ride-summary) lists its fields |
+| `node tools/places-from-osm.mjs` | rewrites `tools/places-nl.json`, the Dutch train, metro and light-rail stations the chart names places from. Data © OpenStreetMap contributors, Open Database License |
 | `node tools/profile-from-log.mjs <session.json> <name>`, `node tools/simulate.mjs --profile <name> [--headed]` | derives a simulation profile from a recorded stretch and runs the app under it (WebKit only); `tests/simulation.mjs` asserts the grades a user would read |
 
 Machine-local recordings go in `.dev/`, ignored as a directory: a recording contains a home
