@@ -62,6 +62,13 @@ and `phase_up_ms` split it further.
 | cell id, unredacted | `kCTCellMonitorCellId = 16461107` |
 | cell change | `updateConnectedStateSummary 1, Cell Changed 1` |
 | neighbours | `EARFCN: 6400, PCI: 395, Bandwidth: 50, Neighbor Type: 3` |
+| MIMO layers | `QMI.DSD.1 Max Scheduled MIMO Layer: 3`, beside `Max Network MIMO Layer` and `Total Downlink MIMO Layers` |
+
+The sysdiagnose also holds a powerlog, `logs/powerlogs/powerlog_*.PLSQL`. The join reads the
+battery temperature and charge from it and gives every round the reading nearest its start, within
+two minutes. No per-component sensor is available: the database defines tables for the thermal
+sensors and the thermal level, and both stay empty on a shipping build, so a thermal state shows up
+only as its absence.
 
 Reporting follows radio activity, so the number of samples differs per round. The join records how
 many fell inside each one.
@@ -96,6 +103,9 @@ Apple versions none of them.
 | identity reports alternate between cells inside a second | log format | a cell change is read from `Cell Changed`, since comparing consecutive identities overstates reselections |
 | an NR report need not fall inside its round | tool rule | a cell is named only for a round that measured NR signal, and never from a report over 120 s older than the round |
 | an NR ARFCN does not name one band | 3GPP TS 38.104 table 5.4.2.3-1 | the FR1 ranges overlap, so 646848 is 3702.72 MHz in either n77 or n78; the frequency is exact and the band is a candidate list |
+| MIMO reporting is not in every capture | observed | one archive of four carried no layer line at all, from the same phone and build as one that did, so the field is absent rather than zero |
+| the battery is the only temperature | observed | a warm modem beside a cool battery is invisible; the reading also lags, since the battery warms after the chip does |
+| within one ride, temperature rises with time | by construction | it is a proxy for how far along the route a round was, so a warm-against-cool comparison inside a single ride cannot separate heat from place. Two rides over the same route, one started cold and one started warm, can |
 | it is the phone's own view | by construction | no radio-block utilisation, no scheduling decisions, no other user's experience, so it names a cell without proving what the cell did |
 | line formats are unversioned | by construction | a required pattern matching nothing fails the run and names itself |
 | the profile expires after 7 days | Apple: `DurationUntilRemoval` is 604800 s in `Baseband.mobileconfig` | reinstall before a trip, and remove it afterwards under Settings → General → VPN & Device Management, then restart |

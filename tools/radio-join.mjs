@@ -13,6 +13,7 @@ import {tmpdir} from 'node:os';
 import {dirname, basename, join} from 'node:path';
 import {createInterface} from 'node:readline';
 import {BUILD_SEEN, IDENTIFIERS, PATTERNS, REQUIRED, isSentinel, predicate} from './radio-patterns.mjs';
+import {MAX_AGE_MS as BATTERY_MAX_AGE_MS, nearestReading, readBattery} from './powerlog.mjs';
 
 // A round whose `round_ms` is null never reached `endRound`; the interval bounds it instead.
 export const PAD_MS = 5000;
@@ -177,6 +178,17 @@ export function enrich(session, events) {
     };
   };
 
+  // One entry per kind of layer count in the window; a kind the window never saw is absent.
+  const mimoIn = events => {
+    if (!events.length) return null;
+    const out = {n: events.length};
+    for (const which of ['network', 'scheduled', 'total']) {
+      const layers = events.filter(e => e.which === which).map(e => e.layers);
+      if (layers.length) out[which] = stats(layers);
+    }
+    return out;
+  };
+
   const radioFor = row => {
     const start = row.t;
     const end = roundEnd(row);
@@ -211,6 +223,9 @@ export function enrich(session, events) {
         n: nr.length, rsrp: stats(pick(nr, 'rsrp')), snr: stats(pick(nr, 'snr')),
         samples: nr.map(e => [e.t - start, e.rsrp, e.snr])
       } : null,
+      // Layers the network offered against layers the modem took. The two diverge where the
+      // modem holds back; both stay flat where the cell is simply weak.
+      mimo: mimoIn(inWindow('mimo')),
       rat: rats.at(-1) ?? null,
       rat_transitions: rats.reduce((acc, r, i) => (i && r !== rats[i - 1]
         ? [...acc, [inWindow('identity')[i].t - start, rats[i - 1], r]] : acc), []),
@@ -244,6 +259,16 @@ export function enrich(session, events) {
     data_slots: [...new Set(marks.map(e => e.slot))],
     other_sim_dropped: otherSim
   };
+}
+
+// Each round carries the battery reading nearest its start, so warmth stands beside the
+// measurement it might explain. A round further from any reading than `MAX_AGE_MS` carries none.
+export function withBattery(samples, battery) {
+  if (!battery?.length) return samples;
+  return samples.map(row => {
+    const b = nearestReading(battery, row.t);
+    return b ? {...row, battery: {temp_c: b.temp_c, level: b.level, age_ms: b.age_ms}} : row;
+  });
 }
 
 // The build the log came from. The export's user agent is frozen by Safari and cannot say.
@@ -297,9 +322,17 @@ export const LIMITATIONS = [
 
 export function buildOutput(session, collector, archivePath, sourcePath = archivePath) {
   const joined = enrich(session, collector.events);
-  const rows = joined.samples;
   const taken = sysdiagnoseTaken(sourcePath);
   const stopped = session.session?.stopped;
+  // An archive unpacked without its powerlog, or one that held none, leaves the rounds without a
+  // battery reading; the join itself does not depend on it.
+  let battery = null;
+  try {
+    battery = readBattery(dirname(archivePath));
+  } catch (e) {
+    console.error(`  battery readings unavailable: ${e.message}`);
+  }
+  const rows = withBattery(joined.samples, battery?.samples);
 
   return {
     format: 'nulog/session+radio',
@@ -331,6 +364,12 @@ export function buildOutput(session, collector, archivePath, sourcePath = archiv
         // line can fall outside any round.
         signal_from: joined.signal_from,
         signal_to: joined.signal_to,
+        // Battery readings land every 30 s or so, which is coarser than a round: `age_ms` on the
+        // round says how far its reading was taken from it.
+        battery: battery
+          ? {rounds: rows.filter(r => r.battery).length, samples: battery.samples.length,
+             source: basename(battery.source), max_age_ms: BATTERY_MAX_AGE_MS}
+          : null,
         // `patterns` counts lines matched on every SIM slot, before `other_sim_dropped` removes
         // those from a slot not carrying data. A reselection count is separate, since the flag
         // line is logged on every report and reads 0 on almost all of them.
@@ -351,7 +390,8 @@ export function buildOutput(session, collector, archivePath, sourcePath = archiv
 export const isSysdiagnoseArchive = path => /\.(tar\.gz|tgz)$/i.test(path);
 
 // Everything the join reads: the log bundle, the plist naming the build, the dump naming the model.
-const WANTED = ['system_logs.logarchive', 'logs/SystemVersion', 'remotectl_dumpstate.txt'];
+const WANTED = ['system_logs.logarchive', 'logs/SystemVersion', 'remotectl_dumpstate.txt',
+                'logs/powerlogs'];
 const BUNDLE = '/system_logs.logarchive/';
 
 // Unpacks those three alone from a sysdiagnose, into a directory the caller removes. Members are

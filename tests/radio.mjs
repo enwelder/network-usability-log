@@ -9,7 +9,8 @@ import {join} from 'node:path';
 import {suite} from './helpers.mjs';
 import {PATTERNS, REQUIRED, predicate} from '../tools/radio-patterns.mjs';
 import {createCollector, enrich, extractSysdiagnose, isSysdiagnoseArchive, prefix64,
-        withoutDeviceAddresses} from '../tools/radio-join.mjs';
+        withBattery, withoutDeviceAddresses} from '../tools/radio-join.mjs';
+import {nearestReading, parseBattery} from '../tools/powerlog.mjs';
 
 const r = suite('radio');
 
@@ -315,6 +316,55 @@ r.test('extractSysdiagnose MUST fail and leave nothing WHEN the archive holds no
   execFileSync('tar', ['czf', archive, '-C', src, 'other']);
   assert.throws(() => extractSysdiagnose(archive), /system_logs\.logarchive/);
   rmSync(src, {recursive: true, force: true});
+});
+
+const mimoLine = (offsetMs, which, layers) =>
+  record(byName('mimo'), `QMI.DSD.1 ${which} MIMO Layer${which === 'Total Downlink' ? 's' : ''}: ${layers}`,
+         offsetMs);
+
+r.test('enrich MUST report scheduled layers beside the offer WHEN the window holds both', () => {
+  const events = collect([
+    identity(0, 16461107), signal(100, -100),
+    mimoLine(200, 'Max Network', 4), mimoLine(300, 'Max Scheduled', 2), mimoLine(400, 'Max Scheduled', 1)
+  ]).events;
+  const {mimo} = enrich(session([round(0, 0)]), events).samples[0].radio;
+  assert.equal(mimo.network.med, 4);
+  assert.equal(mimo.scheduled.med, 1, 'the median of the scheduled samples, not the offer');
+  assert.equal(mimo.n, 3);
+});
+
+r.test('enrich MUST report no mimo WHEN the window holds no layer line', () => {
+  const events = collect([identity(0, 16461107), signal(100, -100)]).events;
+  assert.equal(enrich(session([round(0, 0)]), events).samples[0].radio.mimo, null);
+});
+
+r.test('parseBattery MUST return wall-clock milliseconds and degrees WHEN rows use the database clock', () => {
+  const rows = parseBattery('93299883|28.7|99\n93299913|3319|98\n', 1696241527);
+  assert.deepEqual(rows[0], {t: 1789541410000, temp_c: 28.7, level: 99});
+  assert.equal(rows[1].temp_c, 33.2, 'a build writing centidegrees reads as degrees');
+});
+
+r.test('parseBattery MUST drop a row WHEN it carries no temperature', () => {
+  assert.equal(parseBattery('93299883||99\n93299913|28.7|98\n', 0).length, 1);
+});
+
+r.test('nearestReading MUST return null WHEN the closest reading is older than the bound', () => {
+  const samples = [{t: 1000, temp_c: 30, level: 50}, {t: 200000, temp_c: 31, level: 49}];
+  assert.equal(nearestReading(samples, 150000, 20000), null);
+  assert.equal(nearestReading(samples, 150000, 60000).temp_c, 31, 'within the bound the nearer one wins');
+});
+
+r.test('withBattery MUST leave a round untouched WHEN no reading lies within the bound', () => {
+  const rows = [{seq: 0, t: AT}, {seq: 1, t: AT + 600000}];
+  const out = withBattery(rows, [{t: AT + 1000, temp_c: 29.4, level: 88}]);
+  assert.equal(out[0].battery.temp_c, 29.4);
+  assert.equal(out[0].battery.age_ms, 1000);
+  assert.equal(out[1].battery, undefined);
+});
+
+r.test('withBattery MUST return the rounds unchanged WHEN the archive carried no powerlog', () => {
+  const rows = [{seq: 0, t: AT}];
+  assert.equal(withBattery(rows, null), rows);
 });
 
 await r.run();

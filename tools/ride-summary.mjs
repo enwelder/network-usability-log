@@ -78,6 +78,70 @@ function stretchRadio(rounds) {
   };
 }
 
+// Signal bands to hold the temperature comparison at a constant link quality. RSRP is the control:
+// throughput falling at equal signal is a modem holding back, while throughput and signal falling
+// together is coverage.
+const SIGNAL_BANDS = [
+  {label: '-90 dBm and stronger', min: -90, max: Infinity},
+  {label: '-100 to -90 dBm', min: -100, max: -90},
+  {label: '-110 to -100 dBm', min: -110, max: -100},
+  {label: 'below -110 dBm', min: -Infinity, max: -110}
+];
+
+const downMbps = s => (s.probes?.down?.ok ? s.probes.down.bps / 1e6 : null);
+const rsrpOf = s => s.radio?.nr?.rsrp?.med ?? s.radio?.lte?.rsrp?.med ?? null;
+
+// Layers scheduled against layers offered. A round scheduled below the offer is the modem holding
+// back; which of heat, coexistence or the standby SIM did it is not in the log.
+function mimoTotals(rounds) {
+  const withMimo = rounds.filter(s => s.radio.mimo?.scheduled);
+  if (!withMimo.length) return null;
+  const below = withMimo.filter(s => s.radio.mimo.network &&
+    s.radio.mimo.scheduled.med < s.radio.mimo.network.med).length;
+  return {
+    rounds: withMimo.length,
+    scheduled_p50: pct(withMimo.map(s => s.radio.mimo.scheduled.med), 0.5),
+    network_p50: pct(withMimo.map(s => s.radio.mimo.network?.med), 0.5),
+    below_offer_share: share(below, withMimo.length)
+  };
+}
+
+// Throughput either side of the ride's own temperature, within one signal band. The rounds are
+// ranked and cut in half rather than cut at a temperature, so both sides carry rounds whatever the
+// spread; rounds sharing the boundary temperature fall on either side of it. A ride the phone never
+// warmed during shows two halves a fraction of a degree apart, which is the honest reading.
+export function thermalTotals(samples) {
+  const rows = samples.filter(s => s.battery?.temp_c != null);
+  if (!rows.length) return null;
+  const temps = rows.map(s => s.battery.temp_c);
+  const ranked = [...rows].sort((a, b) => a.battery.temp_c - b.battery.temp_c);
+  const half = Math.floor(ranked.length / 2);
+  const warmer = new Set(ranked.slice(half));
+  const split = ranked[half]?.battery.temp_c ?? null;
+  const by_signal = [];
+  for (const band of SIGNAL_BANDS) {
+    const inBand = rows.filter(s => {
+      const r = rsrpOf(s);
+      return r != null && r >= band.min && r < band.max && downMbps(s) != null;
+    });
+    if (!inBand.length) continue;
+    const side = keep => {
+      const rows_ = inBand.filter(keep);
+      return {rounds: rows_.length, dl_p50_mbps: round1(pct(rows_.map(downMbps), 0.5)),
+              mimo_p50: pct(rows_.map(s => s.radio?.mimo?.scheduled?.med), 0.5)};
+    };
+    by_signal.push({signal: band.label,
+                    cool: side(s => !warmer.has(s)), warm: side(s => warmer.has(s))});
+  }
+  return {
+    rounds: rows.length,
+    temp_c: {min: Math.min(...temps), p50: split, max: Math.max(...temps)},
+    battery_level: {start: rows[0].battery.level, end: rows.at(-1).battery.level},
+    split_c: split,
+    by_signal
+  };
+}
+
 export function radioTotals(samples, recordedMin) {
   const withRadio = samples.filter(s => s.radio);
   if (!withRadio.length) return null;
@@ -99,7 +163,8 @@ export function radioTotals(samples, recordedMin) {
     nr_rsrp_dbm: {p50: pct(covered.map(s => s.radio.nr?.rsrp.med), 0.5)},
     cell_changes_in_rounds: inRounds, cell_changes_between_rounds: between,
     cell_changes_per_hour: recordedMin ? round1(((inRounds + between) * 60) / recordedMin) : null,
-    stall_rounds: covered.filter(s => s.radio.stalls?.some(x => x[1])).length
+    stall_rounds: covered.filter(s => s.radio.stalls?.some(x => x[1])).length,
+    mimo: mimoTotals(covered)
   };
 }
 
@@ -154,7 +219,8 @@ export function trackTotals(track, ride) {
     new_host: {p50_ms: s.probes.dns.ms_p50, p90_ms: s.probes.dns.ms_p90},
     failures: Object.fromEntries(Object.entries(s.probes)
       .filter(([, p]) => sumFails(p.fails) > 0).map(([id, p]) => [id, p.fails])),
-    radio: radioTotals(track.samples, recordedMin)
+    radio: radioTotals(track.samples, recordedMin),
+    thermal: thermalTotals(track.samples)
   };
 }
 
@@ -239,6 +305,14 @@ export const DEFINITIONS = {
   lower: "per track, the pairs in which that track's grade lies further toward red than the other's",
   red_only: 'per track, the pairs in which only that track is red',
   connection_5g: 'a round whose RAT reads kENDC, or that measured NR signal',
+  battery_temp: 'the reading nearest the round from the sysdiagnose powerlog, within its max_age_ms. ' +
+                'iOS records no per-component sensor on a shipping build, so this is the battery',
+  thermal_by_signal: 'download rate for the cooler and the warmer half of the rounds, within one ' +
+                     'band of RSRP. Falling with signal held constant is a modem holding back; ' +
+                     'falling with signal is coverage. split_c is the temperature at the cut',
+  mimo_below_offer: 'rounds whose median scheduled layers stayed under the layers the network offered. ' +
+                    'A scheduler picks layers by channel conditions, so this is high on a phone that can ' +
+                    'take more layers than the path supports; it is not by itself a modem holding back',
   lte_band_mhz: BAND_MHZ,
   fix: {max_accuracy_m: FIX_MAX_ACCURACY_M, max_age_ms: FIX_MAX_AGE_MS,
         choice: 'the sharpest fresh fix of any track near the moment'},
@@ -265,7 +339,7 @@ export function rideSummary(ride, {places = [], placesSource = null, inputs = []
   const from = nearestPlace(places, points[0]);
   const to = nearestPlace(places, points.at(-1));
   return {
-    format: SUMMARY_FORMAT, version: 1, generated, generated_by: 'tools/ride-chart.mjs',
+    format: SUMMARY_FORMAT, version: 2, generated, generated_by: 'tools/ride-chart.mjs',
     ride: {
       id: ride.id, title: rideTitle(ride, from, to), timezone: tz, date: zonedDate(ride.t0, tz),
       start_clock: zonedClock(ride.t0, tz, true), end_clock: zonedClock(ride.t1, tz, true),

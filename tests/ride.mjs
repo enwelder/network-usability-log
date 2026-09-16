@@ -4,7 +4,7 @@ import assert from 'node:assert';
 import {suite} from './helpers.mjs';
 import {bestFix, buildTracks, dedupeSessions, fixOf, groupRides, is5g, pairRounds, readInput, ridesFrom,
         routeSegments, zonedClock} from '../tools/ride.mjs';
-import {pairedTotals, redStretches, rideSummary, trackTotals} from '../tools/ride-summary.mjs';
+import {pairedTotals, redStretches, rideSummary, thermalTotals, trackTotals} from '../tools/ride-summary.mjs';
 import {nearestPlace, validatePlaces} from '../tools/places.mjs';
 import {toPlaces} from '../tools/places-from-osm.mjs';
 import {commonBreaks, esc, layout, renderSvg, timeTicks} from '../tools/ride-svg.mjs';
@@ -291,6 +291,53 @@ r.test('rideFileName MUST name the file by time, route and phones WHEN places an
 r.test('rideFileName MUST say route unknown WHEN no fix places the ride', () => {
   const ride = oneRide(doc('a', 'KPN', 's', rounds('a', 0, 4)));
   assert.equal(rideFileName(ride, rideSummary(ride)), '20260915-1813 route unknown - KPN');
+});
+
+// A round at one signal level, one temperature and one download rate.
+const warmRound = (seconds, {temp, rsrp, mbps, layers = 2}) =>
+  round('a', seconds, {battery: {temp_c: temp, level: 90, age_ms: 1000},
+                       probes: {...probes(), down: {ok: true, bps: mbps * 1e6}},
+                       radio: {lte: {rsrp: {med: rsrp}}, mimo: {scheduled: {med: layers}}}});
+
+r.test('thermalTotals MUST split at the median temperature WHEN rounds carry readings', () => {
+  const t = thermalTotals([
+    warmRound(0, {temp: 28, rsrp: -95, mbps: 20}),
+    warmRound(20, {temp: 30, rsrp: -95, mbps: 20}),
+    warmRound(40, {temp: 34, rsrp: -95, mbps: 20})
+  ]);
+  assert.equal(t.split_c, 30);
+  assert.deepEqual(t.temp_c, {min: 28, p50: 30, max: 34});
+  assert.equal(t.rounds, 3);
+});
+
+r.test('thermalTotals MUST compare warm against cool within one signal band WHEN signal differs across rounds', () => {
+  // The strong-signal rounds are the cool ones and the weak-signal rounds the warm ones; pooling
+  // them would read as a temperature effect that is only coverage.
+  const t = thermalTotals([
+    warmRound(0, {temp: 28, rsrp: -85, mbps: 25}),
+    warmRound(20, {temp: 28, rsrp: -85, mbps: 25}),
+    warmRound(40, {temp: 34, rsrp: -115, mbps: 5}),
+    warmRound(60, {temp: 34, rsrp: -115, mbps: 5})
+  ]);
+  const strong = t.by_signal.find(b => b.signal === '-90 dBm and stronger');
+  const weak = t.by_signal.find(b => b.signal === 'below -110 dBm');
+  assert.deepEqual([strong.cool.rounds, strong.warm.rounds], [2, 0], 'every strong round was cool');
+  assert.deepEqual([weak.cool.rounds, weak.warm.rounds], [0, 2], 'and every weak round was warm');
+  assert.equal(strong.warm.dl_p50_mbps, null, 'so neither band compares anything');
+});
+
+r.test('thermalTotals MUST report the scheduled layers per side WHEN rounds carry mimo', () => {
+  const t = thermalTotals([
+    warmRound(0, {temp: 28, rsrp: -105, mbps: 25, layers: 4}),
+    warmRound(20, {temp: 34, rsrp: -105, mbps: 25, layers: 1})
+  ]);
+  const band = t.by_signal.find(b => b.signal === '-110 to -100 dBm');
+  assert.deepEqual([band.cool.mimo_p50, band.warm.mimo_p50], [4, 1],
+                   'equal rate at equal signal on fewer layers is what a capped measurement hides');
+});
+
+r.test('thermalTotals MUST return null WHEN no round carries a battery reading', () => {
+  assert.equal(thermalTotals([round('a', 0), round('a', 20)]), null);
 });
 
 await r.run();

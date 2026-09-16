@@ -99,6 +99,19 @@ export const PATTERNS = [
     }
   },
   {
+    // What the modem was allowed and what it took: a fallback under heat or coexistence shows as
+    // fewer scheduled layers while the network still offers the same number. `Total Downlink`
+    // sums the layers over the aggregated carriers, so it exceeds the per-carrier maximum.
+    name: 'mimo',
+    subsystem: IRAT, category: 'TraceCellular', required: false, slot: fromDsd,
+    regex: /QMI\.DSD\.\d+ (Max Network|Max Scheduled|Total Downlink) MIMO Layers?: (\d+)/,
+    example: 'QMI.DSD.1 Max Scheduled MIMO Layer: 3',
+    read: m => ({kind: 'mimo',
+                 which: {'Max Network': 'network', 'Max Scheduled': 'scheduled',
+                         'Total Downlink': 'total'}[m[1]],
+                 layers: num(m[2])})
+  },
+  {
     // The identity source: it carries `cell_id` unredacted, which the CommCenter table reports as
     // `Cell ID: <private>`.
     name: 'rat_info',

@@ -190,7 +190,7 @@ Records not derivable from the samples.
 
 ## Ride summary
 
-`tools/ride-chart.mjs` writes `nulog/ride-summary`, version 1, one per ride. Places appear as a name and a distance, never as coordinates. `definitions` in the file states the rule behind each figure.
+`tools/ride-chart.mjs` writes `nulog/ride-summary`, version 2, one per ride. Places appear as a name and a distance, never as coordinates. `definitions` in the file states the rule behind each figure.
 
 | field | content |
 |---|---|
@@ -212,6 +212,7 @@ Records not derivable from the samples.
 | `round_trip` | `n`, `p50_ms`, `p90_ms`, `failed`: the IPv6 literal, else the IPv4 literal |
 | `new_host` | `p50_ms`, `p90_ms` of the `dns` probe |
 | `failures` | failure reasons counted per probe |
-| `radio` | null without a radio-joined file: `coverage`, `share_5g`, `rat_share`, `band_share`, `nr_cell_rounds`, `lte_rsrp_dbm` and `lte_snr_db` (`p10`, `p50`), `nr_rsrp_dbm`, `cell_changes_in_rounds`, `cell_changes_between_rounds`, `cell_changes_per_hour`, `stall_rounds` |
+| `radio` | null without a radio-joined file: `coverage`, `share_5g`, `rat_share`, `band_share`, `nr_cell_rounds`, `lte_rsrp_dbm` and `lte_snr_db` (`p10`, `p50`), `nr_rsrp_dbm`, `cell_changes_in_rounds`, `cell_changes_between_rounds`, `cell_changes_per_hour`, `stall_rounds`, `mimo` |
+| `thermal` | null without a powerlog: `rounds`, `temp_c` (`min`, `p50`, `max`), `battery_level` (`start`, `end`), `split_c`, and `by_signal[]`, which holds per RSRP band a `cool` and a `warm` half with `rounds`, `dl_p50_mbps` and `mimo_p50`. The halves are the rounds ranked by temperature and cut in the middle |
 
 A stretch holds `from_clock`, `to_clock`, `from_min`, `to_min`, `rounds` (`pairs` in `both_red_stretches`), `red_by_activity`, `from_place`, `to_place`, and `radio`: RAT shares, bands, LTE RSRP p50, cell changes, stall rounds and rounds without radio coverage.
