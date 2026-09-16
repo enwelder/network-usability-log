@@ -112,6 +112,7 @@ Apple versions none of them.
 | MIMO reporting is not in every capture | observed | one archive of four carried no layer line at all, from the same phone and build as one that did, so the field is absent rather than zero |
 | the battery is the only temperature | observed | a warm modem beside a cool battery is invisible; the reading also lags, since the battery warms after the chip does |
 | within one ride, temperature rises with time | by construction | it is a proxy for how far along the route a round was, so a warm-against-cool comparison inside a single ride cannot separate heat from place. Two rides over the same route, one started cold and one started warm, can |
+| aggregated carriers are not logged | observed | with Telephony Logging installed, two archives hold no `SCell`, `SCC` or carrier-aggregation line, and `LTE Serving Cells:` is followed by one entry, `Index: 0`. A round therefore states the width of the primary carrier and of the NR leg, a floor on the width served, and no count of carriers |
 | the recorded state does not isolate a cause | by construction | within one ride the setup holds, so Wi-Fi scanning or a powered Bluetooth radio is a control to compare rides by, not a measurement of what either did |
 | it is the phone's own view | by construction | no radio-block utilisation, no scheduling decisions, no other user's experience, so it names a cell without proving what the cell did |
 | line formats are unversioned | by construction | a required pattern matching nothing fails the run and names itself |

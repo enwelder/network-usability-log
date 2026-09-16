@@ -91,6 +91,21 @@ const SIGNAL_BANDS = [
 const downMbps = s => (s.probes?.down?.ok ? s.probes.down.bps / 1e6 : null);
 const rsrpOf = s => s.radio?.nr?.rsrp?.med ?? s.radio?.lte?.rsrp?.med ?? null;
 
+// The channel width the round could see: the primary LTE carrier plus the NR leg where one was
+// aggregated. A secondary LTE carrier leaves no line in the log, so this is a floor on the width
+// the phone was actually served, never the total.
+function widthTotals(rounds) {
+  const lte = rounds.map(s => s.radio.cell?.bw_mhz);
+  const nr = rounds.map(s => s.radio.nr_cell?.bw_mhz);
+  const sum = rounds.map(s => {
+    const a = s.radio.cell?.bw_mhz ?? null;
+    const b = s.radio.nr_cell?.bw_mhz ?? null;
+    return a == null && b == null ? null : (a ?? 0) + (b ?? 0);
+  });
+  if (!sum.some(v => v != null)) return null;
+  return {lte_p50: pct(lte, 0.5), nr_p50: pct(nr, 0.5), sum_p10: pct(sum, 0.1), sum_p50: pct(sum, 0.5)};
+}
+
 // Layers scheduled against layers offered. A round scheduled below the offer is the modem holding
 // back; which of heat, coexistence or the standby SIM did it is not in the log.
 function mimoTotals(rounds) {
@@ -184,7 +199,8 @@ export function radioTotals(samples, recordedMin) {
     cell_changes_in_rounds: inRounds, cell_changes_between_rounds: between,
     cell_changes_per_hour: recordedMin ? round1(((inRounds + between) * 60) / recordedMin) : null,
     stall_rounds: covered.filter(s => s.radio.stalls?.some(x => x[1])).length,
-    mimo: mimoTotals(covered)
+    mimo: mimoTotals(covered),
+    dl_mhz_seen: widthTotals(covered)
   };
 }
 
@@ -334,6 +350,8 @@ export const DEFINITIONS = {
   thermal_by_signal: 'download rate for the cooler and the warmer half of the rounds, within one ' +
                      'band of RSRP. Falling with signal held constant is a modem holding back; ' +
                      'falling with signal is coverage. split_c is the temperature at the cut',
+  dl_mhz_seen: 'the width of the primary LTE carrier plus the NR leg. An aggregated secondary ' +
+               'carrier is not logged at all, so this is a floor on the width served, not a total',
   mimo_below_offer: 'rounds whose median scheduled layers stayed under the layers the network offered. ' +
                     'A scheduler picks layers by channel conditions, so this is high on a phone that can ' +
                     'take more layers than the path supports; it is not by itself a modem holding back',

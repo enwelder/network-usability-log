@@ -15,6 +15,11 @@ import {createInterface} from 'node:readline';
 import {BUILD_SEEN, IDENTIFIERS, PATTERNS, REQUIRED, isSentinel, predicate} from './radio-patterns.mjs';
 import {MAX_AGE_MS as BATTERY_MAX_AGE_MS, nearestReading, readBattery} from './powerlog.mjs';
 
+// LTE channel width per resource-block count, 3GPP TS 36.101 table 5.6-1. Only the primary carrier
+// is logged, so a round states the width of that one carrier and of the NR leg, never the total: an
+// aggregated secondary carrier leaves no line to read.
+const LTE_RB_MHZ = {6: 1.4, 15: 3, 25: 5, 50: 10, 75: 15, 100: 20};
+
 // A round whose `round_ms` is null never reached `endRound`; the interval bounds it instead.
 export const PAD_MS = 5000;
 // A window holding fewer signal samples than this, or a gap this long, is `partial`.
@@ -138,7 +143,8 @@ export function enrich(session, events) {
       mcc: last.mcc, mnc: last.mnc, tac: last.tac, eci,
       enb: eci == null ? null : eci >> 8, sector: eci == null ? null : eci & 255,
       pci: config?.pci ?? null, earfcn: config?.earfcn ?? null, band: config?.band ?? null,
-      bw_rb: config?.bw_rb ?? null, rat: last.rat, age_ms: t - last.t
+      bw_rb: config?.bw_rb ?? null, bw_mhz: LTE_RB_MHZ[config?.bw_rb] ?? null,
+      rat: last.rat, age_ms: t - last.t
     };
   };
 

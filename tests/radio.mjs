@@ -401,4 +401,16 @@ r.test('bt_state MUST read the power state alone WHEN the line goes on to name a
   assert.deepEqual(p.read(m), {kind: 'bt_state', on: true}, 'nothing but the state is retained');
 });
 
+r.test('enrich MUST state the LTE carrier width in MHz WHEN the config gives resource blocks', () => {
+  const events = collect([
+    identity(0, 16461107), signal(100, -100),
+    record(byName('serving_cell'),
+           'Index: 0, MCC: 204, MNC: 8, Band info: 7, Area code: 32004, Cell ID: <private>, ' +
+           'EARFCN: 3300, PID: 153, Bandwidth: 50', 0)
+  ]).events;
+  const {cell} = enrich(session([round(0, 0)]), events).samples[0].radio;
+  assert.equal(cell.bw_rb, 50);
+  assert.equal(cell.bw_mhz, 10, '50 resource blocks is a 10 MHz channel');
+});
+
 await r.run();
