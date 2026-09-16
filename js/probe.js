@@ -57,11 +57,20 @@ const LATENCY_SAMPLES = 10;
 // on a mobile link, so fewer samples fit the budget.
 const FIRST_CONTACT_SAMPLES = 5;
 
+// Second address per family, run only as a fallback. The resolvers answer a fixed question over
+// CORS and echo it, which a middlebox answering in their place does not.
+export const ALT_LITERALS = {
+  ip6: 'https://[2001:4860:4860::8888]/resolve?name=example.com&type=A',
+  ip4: 'https://8.8.8.8/resolve?name=example.com&type=A'
+};
+
 export const PROBES = [
   // Probes with `samples` run repeatedly within the round; `ms` is the median of the
   // samples that fit in the budget and every sample is kept.
-  {id: 'ip6',     label: 'GET to an IPv6 literal, no lookup',   kind: 'trace',  url: 'https://[2606:4700:4700::1111]/cdn-cgi/trace', samples: LATENCY_SAMPLES},
-  {id: 'ip4',     label: 'GET to an IPv4 literal, no lookup',   kind: 'trace',  url: 'https://1.1.1.1/cdn-cgi/trace', samples: LATENCY_SAMPLES},
+  // `alt` is a second literal of the same family on another network, tried only when the first one
+  // fails without reaching the link.
+  {id: 'ip6',     label: 'GET to an IPv6 literal, no lookup',   kind: 'trace',  url: 'https://[2606:4700:4700::1111]/cdn-cgi/trace', alt: ALT_LITERALS.ip6, samples: LATENCY_SAMPLES},
+  {id: 'ip4',     label: 'GET to an IPv4 literal, no lookup',   kind: 'trace',  url: 'https://1.1.1.1/cdn-cgi/trace', alt: ALT_LITERALS.ip4, samples: LATENCY_SAMPLES},
   // A new hostname per sample, so no sample is answered from a cache.
   {id: 'dns',     label: 'HEAD to a name no resolver has seen', kind: 'opaque', url: 'https://%RANDOM%.github.io/',      method: 'HEAD', samples: FIRST_CONTACT_SAMPLES, fresh: true},
   // Sampled like the other latency probes, so the medians are comparable.
@@ -102,6 +111,25 @@ function validateTrace(trace, url) {
   if (trace.visit_scheme && trace.visit_scheme !== 'https') return `scheme downgraded to ${trace.visit_scheme}`;
   if (trace.h && trace.h !== new URL(url).host) return `host rewritten to ${trace.h}`;
   return null;
+}
+
+// Validates a resolver's JSON answer. The question is echoed, so a middlebox answering for the
+// address fails the check rather than passing as a round trip.
+function finishResolve(r, text, url) {
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    r.fail = 'parse';
+    r.parse_reason = 'body is not JSON';
+    return r;
+  }
+  if (typeof body.Status !== 'number') { r.fail = 'parse'; r.parse_reason = 'no status field'; return r; }
+  const asked = new URL(url).searchParams.get('name');
+  const echoed = body.Question?.[0]?.name?.replace(/\.$/, '') ?? null;
+  if (echoed !== asked) { r.fail = 'parse'; r.parse_reason = `question echoed as ${echoed}`; return r; }
+  r.ok = true;
+  return r;
 }
 
 // Cloudflare's view of the connection: transport, RTT in microseconds, retransmits, losses,
@@ -218,9 +246,9 @@ async function runOnce(probe, {timeoutMs = TIMEOUT_MS, signal} = {}) {
     r.status = res.status;
     if (!res.ok) { r.ms = elapsed(); r.fail = 'http'; return r; }
 
-    const trace = parseTrace(await res.text());
+    const text = await res.text();
     markElapsed(r, probe, elapsed());
-    return finishTrace(r, trace, url);
+    return probe.kind === 'resolve' ? finishResolve(r, text, url) : finishTrace(r, parseTrace(text), url);
   } catch (e) {
     r.ms = elapsed();
     r.fail = e && e.name === 'AbortError' ? (timedOut ? 'timeout' : 'abort') : 'network';
@@ -663,6 +691,34 @@ async function takeSamples(probe, opts, started) {
   return {runs, starts, end: 'count'};
 }
 
+// A refused address fails fast. A literal that hung until its deadline or the round's abort
+// stalled on a path that carried traffic earlier or later in the round, as in a railway tunnel.
+const STALLED = new Set(['timeout', 'abort']);
+
+// A literal that failed without stalling never reached the link: the address was refused, or its
+// family has no route on this client. The second literal separates the two, and its round trip
+// keeps calls measurable. Its budget is one second, since an address that answers at all answers
+// within a round trip and the round's cadence comes first.
+async function tryAlternate(probe, opts, out, started) {
+  const left = (opts.timeoutMs ?? TIMEOUT_MS) - (performance.now() - started);
+  if (left < MIN_TIMEOUT_MS) return out;
+  const alt = await runOnce({...probe, kind: 'resolve', url: probe.alt},
+                            {...opts, timeoutMs: Math.min(left, MIN_TIMEOUT_MS)});
+  out.alt_host = new URL(probe.alt).host;
+  out.alt_ms = alt.ms;
+  if (!alt.ok) {
+    out.alt_fail = alt.fail;
+    return out;
+  }
+  out.primary_ms = out.ms;
+  out.primary_fail = out.fail;
+  out.ok = true;
+  out.fail = null;
+  out.ms = alt.ms;
+  out.via = 'alt';
+  return out;
+}
+
 // Sampled probes run repeatedly inside one deadline; `ms` is the median and every sample is kept.
 // Before the first success, sampling stops at the first failure. After a success a failed sample
 // is a lost packet: sampling continues, `samples_lost` counts it and `sample_fail` keeps the first
@@ -709,6 +765,7 @@ export async function runProbe(probe, opts = {}) {
     if (bad) out.sample_fail = bad.fail;
     out.samples_lost = runs.filter(r => !r.ok && r.fail !== 'abort').length;
   }
+  if (probe.alt && !out.ok && !STALLED.has(out.fail)) await tryAlternate(probe, opts, out, started);
   return out;
 }
 
@@ -815,10 +872,6 @@ function carriedFamilies(out) {
   }
   return carried;
 }
-
-// A refused address fails fast. A literal that hung until its deadline or the round's abort
-// stalled on a path that carried traffic earlier or later in the round, as in a railway tunnel.
-const STALLED = new Set(['timeout', 'abort']);
 
 // Classifies a failing literal as `blocked`, `unused` or a failure, from this round only. A
 // literal counts as a failure when no family carried traffic, or when it stalled on its own

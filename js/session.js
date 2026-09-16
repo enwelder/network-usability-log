@@ -29,7 +29,7 @@ const handshakes = (probe, attempts, first) =>
 const cost = p => (WARM_BYTES[p.kind] * (p.samples || 1)) + handshakes(p, p.samples || 1, false) +
                   (p.bodyBytes || 0);
 
-export const APP_VERSION = '3.18.0';
+export const APP_VERSION = '3.19.0';
 
 // The download runs every round, so the interval is what controls data use.
 export const PROFILES = {
@@ -359,14 +359,20 @@ export function createRecorder({onSample, onEvent, onStatus, onNotice, store = r
     noteEvent(text);
   }
 
-  // A literal refused while its family carries traffic indicates interception; the notice names
-  // the likely causes.
+  // A refused literal names the second address and what it did, so the notice reports what was
+  // tried rather than a presumed cause.
   function noteInterference(row) {
     for (const [id, , label] of PATHS) {
-      if (!row.probes[id]?.blocked) continue;
-      noteOnce(`blocked-${id}`,
-        `${label} literal refused while ${label} carries traffic. ${LITERAL_IPS[id]} is a ` +
-        `public resolver address; a VPN, filter or captive portal commonly intercepts it`);
+      const r = row.probes[id];
+      if (r?.via === 'alt') {
+        noteOnce(`alt-${id}`,
+          `${LITERAL_IPS[id]} refused in ${r.primary_ms} ms while ${r.alt_host} answered, so ` +
+          `${label} carries traffic and the round trip is measured against ${r.alt_host}`);
+      } else if (r?.blocked) {
+        noteOnce(`blocked-${id}`,
+          `no ${label} literal answered while ${label} carries traffic: ${LITERAL_IPS[id]} and ` +
+          `${r.alt_host ?? 'no second address'} both refused`);
+      }
     }
     // Refused or excluded literals leave calls without a round-trip value; a literal that failed on
     // the link grades calls red.

@@ -18,6 +18,8 @@ const html = read('index.html');
 const ALLOWED_ORIGINS = [
   'https://[2606:4700:4700::1111]',
   'https://1.1.1.1',
+  'https://[2001:4860:4860::8888]',
+  'https://8.8.8.8',
   'https://%RANDOM%.github.io',
   'https://nulog-dns-control.github.io',
   'https://www.gstatic.com',

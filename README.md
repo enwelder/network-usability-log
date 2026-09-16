@@ -35,6 +35,14 @@ carries no grades. A slot that comes due while a round is running writes a `skip
 |---|---|---|---|
 | `ip6` | `GET https://[2606:4700:4700::1111]/cdn-cgi/trace` | 10, median | the link over IPv6, no name resolution |
 | `ip4` | `GET https://1.1.1.1/cdn-cgi/trace` | 10, median | the same over IPv4 |
+
+A literal that fails without stalling never reached the link: the address was refused, or its
+family has no route on this client. The probe then makes one request to a second literal of the
+same family, `https://[2001:4860:4860::8888]/resolve` or `https://8.8.8.8/resolve`, which echoes
+the question it was asked. An answer there sets `via: 'alt'` and supplies the round trip, keeping
+`primary_fail` and `primary_ms`; a refusal there sets `alt_fail`, and no address of that family
+answered. The two literals sit on different networks, so a round trip carrying `via: 'alt'` is not
+directly comparable with one from the configured address.
 | `dns` | `HEAD https://<random>.github.io/` | 5, median, a new name each | first contact with an uncached host: resolution, connect, TLS |
 | `dns_ctl` | `HEAD https://nulog-dns-control.github.io/` | 10, median | the same destination under a cached name |
 | `down` | `GET https://speed.cloudflare.com/__down`, 3 streams | 1 | sustained downstream throughput |
@@ -111,7 +119,7 @@ completed a handshake, or when any probe reported an egress address of that fami
 
 | the round shows | the literal is | graded |
 |---|---|---|
-| this family carried traffic; the literal was refused | `blocked`: `1.1.1.1` is a public resolver address that VPNs, filters and captive portals intercept | no |
+| this family carried traffic; both literals were refused | `blocked` | no |
 | this family carried traffic; the literal timed out | a stalled path | red |
 | the other family carried traffic | `unused` | no |
 | no family carried traffic | a failure | red |

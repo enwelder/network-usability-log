@@ -247,11 +247,15 @@ s.test('runProbe MUST return the median as ms and keep every sample with its spr
                    'and the spread is kept, since a median alone hides it');
 });
 
-s.test('runProbe MUST issue one request WHEN the first sample fails', async () => {
-  let calls = 0;
-  globalThis.fetch = async () => { calls++; throw netError(); };
+s.test('runProbe MUST request each literal once WHEN the first sample fails', async () => {
+  const seen = [];
+  globalThis.fetch = async url => { seen.push(url); throw netError(); };
   const r = await probe.runProbe(P.ip6, {timeoutMs: 3000});
-  assert.equal(calls, 1, 'a failed probe is not retried within its own round');
+  assert.equal(seen.filter(u => u.includes('2606:4700:4700::1111')).length, 1,
+               'a refused address is not retried within its own round');
+  assert.equal(seen.filter(u => u.includes('2001:4860:4860::8888')).length, 1,
+               'and the second literal is tried once');
+  assert.equal(seen.length, 2);
   assert.equal(r.ok, false);
   assert.equal(r.samples_ok, 0);
 });

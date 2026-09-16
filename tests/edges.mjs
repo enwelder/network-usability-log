@@ -229,6 +229,62 @@ d.test('runProbe MUST set refused_by to connection or server WHEN the download f
   assert.equal(calls, 1, 'a working download costs one request and no more');
 });
 
+const resolverBody = (name = 'example.com.') =>
+  JSON.stringify({Status: 0, Question: [{name, type: 1}], Answer: [{data: '104.20.23.154'}]});
+
+// Answers the second literal and refuses the first, as a client that reaches every address but the
+// configured one.
+function stubAlternate(body = resolverBody()) {
+  const seen = [];
+  globalThis.fetch = async url => {
+    seen.push(url);
+    if (!url.includes('8.8.8.8')) throw netError();
+    return {ok: true, status: 200, headers: {get: () => null}, text: async () => body};
+  };
+  return seen;
+}
+
+d.test('runProbe MUST answer over the second literal WHEN the first literal is refused before it reaches the link', async () => {
+  stubAlternate();
+  const r = await probe.runProbe(P.ip4, {timeoutMs: 3000});
+  assert.equal(r.ok, true, 'the family carries traffic, so the round is measurable');
+  assert.equal(r.via, 'alt');
+  assert.equal(r.alt_host, '8.8.8.8');
+  assert.equal(r.primary_fail, 'network', 'what the configured address did is kept');
+  assert.equal(r.fail, null);
+  assert.equal(typeof r.ms, 'number', 'the round trip comes from the address that answered');
+  assert.equal(r.egress_ip, undefined, 'a resolver reports no egress address');
+});
+
+d.test('runProbe MUST keep the probe failed WHEN both literals are refused', async () => {
+  globalThis.fetch = async () => { throw netError(); };
+  const r = await probe.runProbe(P.ip4, {timeoutMs: 3000});
+  assert.equal(r.ok, false);
+  assert.equal(r.fail, 'network');
+  assert.equal(r.alt_host, '8.8.8.8');
+  assert.equal(r.alt_fail, 'network', 'no address of this family answered');
+});
+
+d.test('runProbe MUST request no second literal WHEN the first literal stalls until its deadline', async () => {
+  const seen = [];
+  globalThis.fetch = (url, init) => {
+    seen.push(url);
+    return new Promise((_, reject) => init.signal.addEventListener('abort',
+      () => reject(Object.assign(new Error('aborted'), {name: 'AbortError'}))));
+  };
+  const r = await probe.runProbe(P.ip4, {timeoutMs: 200});
+  assert.equal(r.fail, 'timeout', 'a stall is a property of the link, not of the address');
+  assert.equal(r.alt_host, undefined);
+  assert.ok(seen.every(u => !u.includes('8.8.8.8')), `the second literal stays unused: ${seen}`);
+});
+
+d.test('runProbe MUST fail with parse WHEN the second literal echoes another question', async () => {
+  stubAlternate(resolverBody('captive.example.'));
+  const r = await probe.runProbe(P.ip4, {timeoutMs: 3000});
+  assert.equal(r.ok, false);
+  assert.equal(r.alt_fail, 'parse', 'a middlebox answering for the address is no round trip');
+});
+
 d.test('runProbe MUST set aborted_reason eof or done WHEN the body ends first or the window closes first', async () => {
   // 16 kB a chunk is what both engines hand over on a real body.
   const short = await download(Array.from({length: 20}, () => ({after: 8, bytes: 16000})),
