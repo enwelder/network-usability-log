@@ -43,6 +43,10 @@ the question it was asked. An answer sets `alt_ok`: that family carries traffic 
 address alone is refused, which flags the literal `blocked`. A refusal sets `alt_fail`: no address
 of that family answered. The second literal never supplies `ms`, since the two addresses sit on
 different networks and their round trips are not one series.
+
+Two addresses of one family refused before any handshake settle that the link carries no such
+route, outranking any egress address a probe reported: a relayed request reports the relay's
+address, whose family is not the link's.
 | `dns` | `HEAD https://<random>.github.io/` | 5, median, a new name each | first contact with an uncached host: resolution, connect, TLS |
 | `dns_ctl` | `HEAD https://nulog-dns-control.github.io/` | 10, median | the same destination under a cached name |
 | `down` | `GET https://speed.cloudflare.com/__down`, 3 streams | 1 | sustained downstream throughput |
@@ -119,7 +123,7 @@ completed a handshake, or when any probe reported an egress address of that fami
 
 | the round shows | the literal is | graded |
 |---|---|---|
-| this family carried traffic; both literals were refused | `blocked` | no |
+| this family carried traffic; the literal was refused | `blocked` | no |
 | this family carried traffic; the literal timed out | a stalled path | red |
 | the other family carried traffic | `unused` | no |
 | no family carried traffic | a failure | red |

@@ -86,7 +86,7 @@ function gradeTally(ran, keys, field) {
 }
 
 // 16: the summary counts the rounds that lost the wake lock.
-const FORMAT_VERSION = 17;
+const FORMAT_VERSION = 18;
 
 // A row carrying `skipped` comes from a file written before format 11, where a slot that could
 // not start was a row.

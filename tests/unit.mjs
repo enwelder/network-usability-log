@@ -132,6 +132,13 @@ s.test('runRound MUST derive unused and blocked from the traffic of that round a
   assert.equal(r.ip4.blocked, true);
   assert.equal(r.ip6.unused, true);
 
+  // A relayed download reports the relay's egress, which is IPv6 while the link carries only
+  // IPv4. Two IPv6 addresses refused before any handshake settle it against that reading.
+  r = await round(u => (v6(u) ? netError() : trace('2a09:bac3::1')));
+  assert.equal(r.ip6.alt_fail, 'network', 'the second IPv6 literal was refused too');
+  assert.equal(r.ip6.blocked, undefined, 'so the path carries no IPv6, whatever the relay reports');
+  assert.equal(r.ip6.unused, true);
+
   // A literal that answers with a status this code rejects still completed a handshake to that
   // address, so its family carried traffic.
   r = await round(u => (v6(u) ? {ok: false, status: 429, text: async () => ''} : trace('1.2.3.4')));

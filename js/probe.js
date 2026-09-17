@@ -873,6 +873,13 @@ function carriedFamilies(out) {
 // literal, a handover, and two blocked literals.
 function markLiterals(out) {
   const carried = carriedFamilies(out);
+  // A relayed request reports the relay's egress address, whose family is not the link's: an
+  // iCloud Private Relay egress reads as IPv6 on a path carrying only IPv4. Two addresses of one
+  // family refused before any handshake is direct evidence about the link, and outranks it.
+  for (const id of ['ip6', 'ip4']) {
+    const r = out[id];
+    if (r && !r.ok && r.fail === 'network' && r.alt_fail === 'network') carried.delete(id);
+  }
   for (const id of ['ip6', 'ip4']) {
     const r = out[id];
     if (!r || r.ok || r.fail === 'resting') continue;

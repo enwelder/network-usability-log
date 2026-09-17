@@ -29,7 +29,7 @@ const handshakes = (probe, attempts, first) =>
 const cost = p => (WARM_BYTES[p.kind] * (p.samples || 1)) + handshakes(p, p.samples || 1, false) +
                   (p.bodyBytes || 0);
 
-export const APP_VERSION = '3.20.0';
+export const APP_VERSION = '3.21.0';
 
 // The download runs every round, so the interval is what controls data use.
 export const PROFILES = {
@@ -370,8 +370,8 @@ export function createRecorder({onSample, onEvent, onStatus, onNotice, store = r
           `carries traffic and this address alone is refused`);
       } else if (r?.blocked) {
         noteOnce(`blocked-${id}`,
-          `no ${label} literal answered while ${label} carries traffic: ${LITERAL_IPS[id]} and ` +
-          `${r.alt_host ?? 'no second address'} both refused`);
+          `${LITERAL_IPS[id]} refused while ${label} carries traffic` +
+          (r.alt_fail ? `, and ${r.alt_host} with it` : ''));
       }
     }
     // Refused or excluded literals leave calls without a round-trip value; a literal that failed on
