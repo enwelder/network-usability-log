@@ -68,6 +68,13 @@ r.test('buildTracks MUST join two sessions into one track WHEN the same phone re
   assert.deepEqual([track.sessions.length, track.joins[0].gap_s], [2, 2]);
 });
 
+r.test('buildTracks MUST name the phone model WHEN two phones on one operator carry distinct models', () => {
+  const joined = (id, model, start) => ({...doc(id, 'Odido', model, rounds(id, start, 3),
+                                                {radio: {device: model}}), format: 'nulog/session+radio'});
+  const tracks = buildTracks(entriesOf(joined('a', 'iPhone SE', 0), joined('b', 'iPhone 15 Pro', 5)));
+  assert.deepEqual(tracks.map(t => t.label).sort(), ['Odido iPhone 15 Pro', 'Odido iPhone SE']);
+});
+
 r.test('buildTracks MUST keep two numbered tracks WHEN two phones on one operator record at the same time', () => {
   const tracks = buildTracks(entriesOf(doc('a', 'KPN', 's', rounds('a', 0, 3)), doc('b', 'KPN', 's', rounds('b', 5, 3))));
   assert.deepEqual(tracks.map(t => t.label), ['KPN 1', 'KPN 2']);

@@ -47,7 +47,9 @@ export function rideFileName(ride, summary) {
   const when = ride.id.replace('nulog-ride-', '');
   const route = summary.ride.from_place && summary.ride.to_place
     ? `${summary.ride.from_place.name} to ${summary.ride.to_place.name}` : 'route unknown';
-  const phones = summary.tracks.map(k => [k.device, k.label].filter(Boolean).join(' ')).join(' + ');
+  // A label that already names the model, as it does when two phones share an operator, stands alone.
+  const phones = summary.tracks.map(k => (k.device && k.label.includes(k.device)
+    ? k.label : [k.device, k.label].filter(Boolean).join(' '))).join(' + ');
   return safeName(`${when} ${route} - ${phones}`);
 }
 

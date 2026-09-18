@@ -117,7 +117,8 @@ function trackOf(group) {
 
 // One track per operator and screen. A later session of the same phone continues its track when it
 // starts after the earlier one's last round and within one interval of that round's end. A track is
-// labelled by its operator, numbered when two tracks share one.
+// labelled by its operator; two tracks sharing one are told apart by phone model where the radio
+// join named distinct models, and numbered otherwise.
 export function buildTracks(entries) {
   const groups = new Map();
   for (const e of [...entries].sort((a, b) => a.samples[0].t - b.samples[0].t)) {
@@ -136,7 +137,10 @@ export function buildTracks(entries) {
     .map((t, _i, all) => {
       const name = t.operator || 'phone';
       const same = all.filter(o => (o.operator || 'phone') === name);
-      return {...t, label: same.length > 1 ? `${name} ${same.indexOf(t) + 1}` : name};
+      if (same.length === 1) return {...t, label: name};
+      const models = same.map(o => o.device);
+      const distinct = models.every(Boolean) && new Set(models).size === models.length;
+      return {...t, label: distinct ? `${name} ${t.device}` : `${name} ${same.indexOf(t) + 1}`};
     });
 }
 
