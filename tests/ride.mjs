@@ -351,8 +351,9 @@ r.test('stateTotals MUST count the scans and the powered rounds WHEN rounds carr
   const t = stateTotals([
     round('a', 0, {state: {wifi_scans: 4, bluetooth_on: true}}),
     round('a', 20, {state: {wifi_scans: 8, bluetooth_on: true}}),
-    round('a', 40, {state: {wifi_scans: 0, bluetooth_on: false}})
+    round('a', 40, {state: {wifi_scans: 0, bluetooth_on: false, other_sim_lines: 3}})
   ]);
+  assert.equal(t.other_sim_rounds, 1);
   assert.equal(t.wifi_scans.total, 12);
   assert.equal(t.wifi_scans.p50_per_round, 4);
   assert.equal(t.bluetooth_on_share, 0.667);

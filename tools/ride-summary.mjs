@@ -173,7 +173,8 @@ export function stateTotals(samples) {
     rounds: rows.length,
     wifi_scans: {total: scans.reduce((a, n) => a + n, 0), p50_per_round: pct(scans, 0.5)},
     bluetooth_on_share: known.length
-      ? share(known.filter(s => s.state.bluetooth_on).length, known.length) : null
+      ? share(known.filter(s => s.state.bluetooth_on).length, known.length) : null,
+    other_sim_rounds: rows.filter(s => s.state.other_sim_lines > 0).length
   };
 }
 
@@ -342,7 +343,8 @@ export const DEFINITIONS = {
   lower: "per track, the pairs in which that track's grade lies further toward red than the other's",
   red_only: 'per track, the pairs in which only that track is red',
   connection_5g: 'a round whose RAT reads kENDC, or that measured NR signal',
-  radio_state: 'Wi-Fi scans counted in the round and whether the Bluetooth controller was powered. ' +
+  radio_state: 'Wi-Fi scans counted in the round, whether the Bluetooth controller was powered, and lines ' +
+               'logged by a SIM not carrying data over the round\'s interval, which show a second line was live. ' +
                'Only the controller state is read from that subsystem: the rest of it names devices ' +
                'belonging to people nearby',
   battery_temp: 'the reading nearest the round from the sysdiagnose powerlog, within its max_age_ms. ' +

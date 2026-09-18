@@ -413,4 +413,13 @@ r.test('enrich MUST state the LTE carrier width in MHz WHEN the config gives res
   assert.equal(cell.bw_mhz, 10, '50 resource blocks is a 10 MHz channel');
 });
 
+r.test('enrich MUST count the lines of a SIM not carrying data WHEN a second line is live in the round', () => {
+  const events = collect([
+    identity(0, 16461107), score(0, 'Two'), signal(100, -100), otherSignal(500, -70), otherSignal(900, -71)
+  ]).events;
+  const rows = enrich(session([round(0, 0), round(1, 20000, {seq: 1})]), events).samples;
+  assert.equal(rows[0].state.other_sim_lines, 2, 'its readings are dropped and their moments kept');
+  assert.equal(rows[1].state, undefined, 'a round without such a line carries no state');
+});
+
 await r.run();

@@ -214,7 +214,7 @@ Records not derivable from the samples.
 | `new_host` | `p50_ms`, `p90_ms` of the `dns` probe |
 | `failures` | failure reasons counted per probe |
 | `radio` | null without a radio-joined file: `coverage`, `share_5g`, `rat_share`, `band_share`, `nr_cell_rounds`, `lte_rsrp_dbm` and `lte_snr_db` (`p10`, `p50`), `nr_rsrp_dbm`, `cell_changes_in_rounds`, `cell_changes_between_rounds`, `cell_changes_per_hour`, `stall_rounds`, `mimo`, `dl_mhz_seen` |
-| `state` | null without the Wi-Fi and Bluetooth lines: `rounds`, `wifi_scans` (`total`, `p50_per_round`), `bluetooth_on_share`. It records the setup a ride ran under |
+| `state` | null without the Wi-Fi and Bluetooth lines: `rounds`, `wifi_scans` (`total`, `p50_per_round`), `bluetooth_on_share`, `other_sim_rounds`: rounds whose interval held a line from a SIM not carrying data. It records the setup a ride ran under |
 | `thermal` | null without a powerlog: `rounds`, `temp_c` (`min`, `p50`, `max`, `spread`), `battery_level` (`start`, `end`), `split_c`, and `by_signal[]`, which holds per RSRP band a `cool` and a `warm` half with `rounds`, `dl_p50_mbps`, `mimo_p50` and `temp_p50_c`. The halves are the rounds ranked by temperature and cut in the middle |
 
 A stretch holds `from_clock`, `to_clock`, `from_min`, `to_min`, `rounds` (`pairs` in `both_red_stretches`), `red_by_activity`, `from_place`, `to_place`, and `radio`: RAT shares, bands, LTE RSRP p50, cell changes, stall rounds and rounds without radio coverage.

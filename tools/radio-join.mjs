@@ -120,14 +120,17 @@ export function enrich(session, events) {
   const all = [...events].sort((a, b) => a.t - b.t);
   const marks = all.filter(e => e.kind === 'score' && e.slot != null);
   const sorted = [];
-  let otherSim = 0;
+  // Only the moment of a line from another slot is kept: it says a second SIM was live, and its
+  // readings describe a path the measurement did not use.
+  const otherSimTimes = [];
   let mark = -1;
   for (const e of all) {
     while (mark + 1 < marks.length && marks[mark + 1].t <= e.t) mark++;
     const dataSlot = (marks[mark] ?? marks[0])?.slot; // lines before the first score take its slot
-    if (e.slot != null && dataSlot != null && e.slot !== dataSlot) otherSim++;
+    if (e.slot != null && dataSlot != null && e.slot !== dataSlot) otherSimTimes.push(e.t);
     else sorted.push(e);
   }
+  const otherSim = otherSimTimes.length;
   const of = kind => sorted.filter(e => e.kind === kind);
   const identities = of('identity');
   const configs = of('radio_config');
@@ -250,8 +253,11 @@ export function enrich(session, events) {
     const end = roundEnd(row);
     const scans = sorted.filter(e => e.kind === 'wifi_scan' && e.t >= start && e.t <= end);
     const bt = sorted.filter(e => e.kind === 'bt_state' && e.t <= end).at(-1);
-    if (!scans.length && !bt) return null;
-    return {wifi_scans: scans.length, bluetooth_on: bt ? bt.on : null};
+    // A live line reports every few seconds, not on the round's schedule, so it is looked for over
+    // the whole interval the round stands for.
+    const otherSimLines = otherSimTimes.filter(t => t >= start && t < start + intervalMs).length;
+    if (!scans.length && !bt && !otherSimLines) return null;
+    return {wifi_scans: scans.length, bluetooth_on: bt ? bt.on : null, other_sim_lines: otherSimLines};
   };
 
   const samples = rows.map(row => ({...withoutDeviceAddresses(row), radio: radioFor(row),

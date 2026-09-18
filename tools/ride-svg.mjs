@@ -358,11 +358,20 @@ function linePanel(b, c, spec) {
   return out.join('');
 }
 
+const SECOND_SIM = '#FDE68A';
+
 function eventsBlock(b, c) {
-  const out = [titleLine(b, 'cell changes and iOS stalls', [['tick', 'cell change'], ['triangle', 'iOS stall']])];
+  const out = [titleLine(b, 'cell changes, iOS stalls and a second SIM',
+                         [['tick', 'cell change'], ['triangle', 'iOS stall'], [SECOND_SIM, 'second SIM live']])];
   for (const row of b.rows) {
     const k = c.track(row.track);
     out.push(rowLabel(c, row), line(X0, row.y + row.h, X1, row.y + row.h, GRID));
+    // Drawn first, so the ticks of the same round stay on top.
+    for (const s of k.samples.filter(r => r.state?.other_sim_lines > 0)) {
+      const x0 = c.tx(s.t);
+      const x1 = c.tx(s.t + k.interval_ms);
+      out.push(rect(n1(x0), row.y, n1(Math.max(1, x1 - x0)), row.h, SECOND_SIM));
+    }
     for (const s of k.samples.filter(r => r.radio)) {
       if (s.radio.cell_changes > 0 || s.radio.cell_changed_since_previous) {
         out.push(line(c.tx(s.t), row.y, c.tx(s.t), row.y + row.h, c.colour(row.track), ' stroke-width="1"'));
